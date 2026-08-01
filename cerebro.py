@@ -27,6 +27,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
+import pyautogui
+import pywinauto
+import psutil
+
 load_dotenv()
 
 navegador_web = None
@@ -86,7 +90,106 @@ def inicializar_sistemas_audio(page):
     except Exception as e:
         print(f"Error fatal de audio: {e}")
 
+
+def agente_autonomo_background(page, objetivo):
+    global url_api, headers
+    page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[AGENTE INICIADO]: Trabajando en segundo plano para: {objetivo}"})
+    
+    herramientas_bg = [
+        { "type": "function", "function": { "name": "mover_y_click_mouse", "description": "Mueve y hace click.", "parameters": { "type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "boton": {"type": "string"}}, "required": ["x", "y", "boton"] } } },
+        { "type": "function", "function": { "name": "escribir_teclado", "description": "Escribe texto fisico.", "parameters": { "type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"] } } },
+        { "type": "function", "function": { "name": "presionar_tecla", "description": "Presiona tecla especial.", "parameters": { "type": "object", "properties": {"tecla": {"type": "string"}}, "required": ["tecla"] } } },
+        { "type": "function", "function": { "name": "escanear_entorno_sistema", "description": "Obtiene la lista de ventanas activas.", "parameters": { "type": "object", "properties": {}, "required": [] } } },
+        { "type": "function", "function": { "name": "buscar_internet", "description": "Busca en web.", "parameters": { "type": "object", "properties": {"tema_a_buscar": {"type": "string"}}, "required": ["tema_a_buscar"] } } },
+        { "type": "function", "function": { "name": "escanear_pantalla_web", "description": "Escanea la pantalla web actual o navega a una URL dada.", "parameters": { "type": "object", "properties": {"url": {"type": "string"}}, "required": [] } } },
+        { "type": "function", "function": { "name": "ejecutar_click", "description": "Hace clic en elemento web (Selenium).", "parameters": { "type": "object", "properties": {"selector": {"type": "string"}}, "required": ["selector"] } } },
+        { "type": "function", "function": { "name": "finalizar_tarea", "description": "Termina la ejecucion autonoma.", "parameters": { "type": "object", "properties": {"reporte": {"type": "string"}}, "required": ["reporte"] } } }
+    ]
+
+    mensajes = [{"role": "system", "content": f"Eres un agente en segundo plano. Tarea: {objetivo}\nUsa las herramientas. IMPORTANTE: NO borres ni edites archivos críticos. Actúa de manera eficiente. Llama a 'finalizar_tarea' cuando acabes."}]
+    
+    for iteracion in range(15): # Max 15 steps
+        paquete = {"model": "llama-3.3-70b-versatile", "messages": mensajes, "tools": herramientas_bg, "stream": False}
+        try:
+            import requests, json, time # safe fallback
+            resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=paquete).json()
+            msg_ia = resp.get("choices", [{}])[0].get("message", {})
+            if not isinstance(msg_ia, dict): break
+            mensajes.append(msg_ia)
+            
+            if "tool_calls" in msg_ia:
+                terminado = False
+                for tool in msg_ia["tool_calls"]:
+                    func = tool["function"]["name"]
+                    args = tool["function"]["arguments"]
+                    if isinstance(args, str):
+                        try: args = json.loads(args)
+                        except: args = {}
+                        
+                    if func == "finalizar_tarea":
+                        reporte = args.get("reporte", "")
+                        page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[AGENTE COMPLETADO]: {reporte}"})
+                        terminado = True
+                        break
+                    elif func == "escanear_entorno_sistema":
+                        try:
+                            sw, sh = pyautogui.size()
+                            txt = f"Resolucion: {sw}x{sh}\nVentanas:\n"
+                            windows = pywinauto.Desktop(backend="uia").windows()
+                            for w in windows:
+                                if w.is_visible() and w.window_text():
+                                    r = w.rectangle()
+                                    txt += f"- '{w.window_text()}' (L:{r.left}, T:{r.top}, R:{r.right}, B:{r.bottom})\n"
+                        except Exception as e: txt = str(e)
+                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
+                    elif func == "mover_y_click_mouse":
+                        x, y, btn = args.get("x", 0), args.get("y", 0), args.get("boton", "left")
+                        try:
+                            pyautogui.moveTo(x, y, duration=0.5); pyautogui.click(button=btn)
+                            mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"Click exitoso en {x}, {y}."})
+                        except Exception as e:
+                            mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": str(e)})
+                    elif func == "escribir_teclado":
+                        try:
+                            pyautogui.write(args.get("texto", "")); mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": "Ok"})
+                        except Exception as e: mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": str(e)})
+                    elif func == "presionar_tecla":
+                        try:
+                            pyautogui.press(args.get("tecla", "")); mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": "Ok"})
+                        except Exception as e: mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": str(e)})
+                    elif func == "buscar_internet":
+                        from ddgs import DDGS
+                        tema = args.get("tema_a_buscar", "")
+                        try:
+                            res = DDGS().text(tema, max_results=2)
+                            txt = "".join([f"{c['title']}: {c['body']}\n" for c in res]) if res else "Sin resultados"
+                        except: txt = "Error de red"
+                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
+                    elif func == "escanear_pantalla_web":
+                        try:
+                            driver = obtener_navegador()
+                            if args.get("url"): driver.get(args.get("url")); time.sleep(2)
+                            txt = driver.find_element(By.TAG_NAME, "body").text[:2000]
+                        except Exception as e: txt = str(e)
+                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
+                    elif func == "ejecutar_click":
+                        try:
+                            driver = obtener_navegador()
+                            driver.find_element(By.CSS_SELECTOR, args.get("selector", "")).click()
+                            txt = "Click ok"
+                        except Exception as e: txt = str(e)
+                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
+                
+                if terminado: break
+            else:
+                if msg_ia.get("content"):
+                    page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[AGENTE UPDATE]: {msg_ia['content']}"})
+        except Exception as e:
+            page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[ERROR AGENTE]: {e}"})
+            break
+
 # --- EL CEREBRO DE ENRUTAMIENTO Y EJECUCIÓN ---
+
 def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
     global id_peticion_global, rol_activo, usuario_activo, conversacion_activa_id
     
@@ -130,7 +233,12 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
             { "type": "function", "function": { "name": "crear_archivo", "description": "Escribe codigo fuente.", "parameters": { "type": "object", "properties": {"nombre_archivo": {"type": "string"}, "contenido": {"type": "string"}}, "required": ["nombre_archivo", "contenido"] } } },
             { "type": "function", "function": { "name": "escanear_pantalla_web", "description": "Escanea la pantalla web actual o navega a una URL dada.", "parameters": { "type": "object", "properties": {"url": {"type": "string", "description": "URL opcional a visitar"}}, "required": [] } } },
             { "type": "function", "function": { "name": "ejecutar_click", "description": "Hace clic en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string", "description": "Texto, clase, ID o selector CSS del elemento"}}, "required": ["selector"] } } },
-            { "type": "function", "function": { "name": "inyectar_texto", "description": "Escribe texto en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string"}, "texto": {"type": "string"}}, "required": ["selector", "texto"] } } }
+            { "type": "function", "function": { "name": "inyectar_texto", "description": "Escribe texto en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string"}, "texto": {"type": "string"}}, "required": ["selector", "texto"] } } },
+            { "type": "function", "function": { "name": "mover_y_click_mouse", "description": "Mueve y hace click en coordenadas fisicas de la pantalla.", "parameters": { "type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "boton": {"type": "string", "description": "left o right"}}, "required": ["x", "y", "boton"] } } },
+            { "type": "function", "function": { "name": "escribir_teclado", "description": "Escribe texto con el teclado fisico.", "parameters": { "type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"] } } },
+            { "type": "function", "function": { "name": "presionar_tecla", "description": "Presiona tecla especial (enter, win, ctrl, etc).", "parameters": { "type": "object", "properties": {"tecla": {"type": "string"}}, "required": ["tecla"] } } },
+            { "type": "function", "function": { "name": "escanear_entorno_sistema", "description": "Obtiene la lista de ventanas activas y resolucion para saber donde clickear.", "parameters": { "type": "object", "properties": {}, "required": [] } } },
+            { "type": "function", "function": { "name": "delegar_tarea_larga", "description": "Inicia un agente en segundo plano para tareas complejas o largas sin bloquear la conversacion.", "parameters": { "type": "object", "properties": {"objetivo": {"type": "string"}}, "required": ["objetivo"] } } }
         ]
     else:
         instrucciones = (
@@ -168,6 +276,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
 
         if respuesta.status_code == 200:
             mensaje_ia = respuesta.json().get("choices", [{}])[0].get("message", {})
+            if not isinstance(mensaje_ia, dict): mensaje_ia = {}
             texto_para_voz = ""
 
             # 5. EJECUCIÓN FÍSICA DE HERRAMIENTAS (BUCLE DE AGENTE AUTÓNOMO)
@@ -184,6 +293,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                     if isinstance(argumentos, str):
                         try: argumentos = json.loads(argumentos)
                         except: argumentos = {}
+                    if not isinstance(argumentos, dict): argumentos = {}
                     
                     # --- LA HERRAMIENTA DE INTERNET ---
                     if nombre_funcion == "buscar_internet":
@@ -200,6 +310,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                         # PASO 3: Le devolvemos el resultado a Jarvis usando el rol 'tool'
                         lista_mensajes.append({
                             "role": "tool",
+                            "tool_call_id": tool.get("id"),
                             "content": f"[SISTEMA - RESULTADOS DE BÚSQUEDA]:\n{texto_crudo}\n\nREGLA: Analiza estos datos y responde a la pregunta original del usuario con el Método de Enseñanza Profunda."
                         })
                     
@@ -215,7 +326,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                             elif not texto_crudo: texto_crudo = "La página parece estar vacía."
                         except Exception as e:
                             texto_crudo = f"Error al escanear la pantalla: {str(e)}"
-                        lista_mensajes.append({"role": "tool", "content": f"[SISTEMA - ESCÁNER WEB]:\n{texto_crudo}\n\nREGLA: Analiza este texto de la página y responde al usuario basándote en esta información."})
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA - ESCÁNER WEB]:\n{texto_crudo}\n\nREGLA: Analiza este texto de la página y responde al usuario basándote en esta información."})
                     
                     elif nombre_funcion == "ejecutar_click":
                         selector = argumentos.get("selector", "")
@@ -230,7 +341,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                             texto_crudo = "Clic ejecutado correctamente en: " + selector
                         except Exception as e:
                             texto_crudo = f"Error al hacer clic en {selector}: {str(e)}"
-                        lista_mensajes.append({"role": "tool", "content": f"[SISTEMA - ACCIÓN WEB]:\n{texto_crudo}"})
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA - ACCIÓN WEB]:\n{texto_crudo}"})
 
                     elif nombre_funcion == "inyectar_texto":
                         selector = argumentos.get("selector", "")
@@ -243,7 +354,67 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                             texto_crudo = f"Texto '{texto}' inyectado correctamente en: {selector}"
                         except Exception as e:
                             texto_crudo = f"Error al inyectar texto en {selector}: {str(e)}"
-                        lista_mensajes.append({"role": "tool", "content": f"[SISTEMA - ACCIÓN WEB]:\n{texto_crudo}"})
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA - ACCIÓN WEB]:\n{texto_crudo}"})
+                        
+                    elif nombre_funcion == "mover_y_click_mouse":
+                        x, y = argumentos.get("x", 0), argumentos.get("y", 0)
+                        boton = argumentos.get("boton", "left")
+                        try:
+                            pyautogui.moveTo(x, y, duration=0.5)
+                            pyautogui.click(button=boton)
+                            texto_crudo = f"Click '{boton}' exitoso en ({x}, {y})."
+                        except Exception as e: texto_crudo = f"Error al hacer click: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "escribir_teclado":
+                        texto = argumentos.get("texto", "")
+                        try:
+                            pyautogui.write(texto, interval=0.01)
+                            texto_crudo = f"Texto '{texto}' escrito en el teclado físico."
+                        except Exception as e: texto_crudo = f"Error al escribir: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "presionar_tecla":
+                        tecla = argumentos.get("tecla", "")
+                        try:
+                            pyautogui.press(tecla)
+                            texto_crudo = f"Tecla '{tecla}' presionada."
+                        except Exception as e: texto_crudo = f"Error al presionar tecla: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+                        
+                    elif nombre_funcion == "escanear_entorno_sistema":
+                        try:
+                            sw, sh = pyautogui.size()
+                            texto_crudo = f"Resolucion de pantalla: {sw}x{sh}\nVentanas activas:\n"
+                            windows = pywinauto.Desktop(backend="win32").windows()
+                            for w in windows:
+                                if w.is_visible() and w.window_text():
+                                    r = w.rectangle()
+                                    texto_crudo += f"- '{w.window_text()}' en (L:{r.left}, T:{r.top}, R:{r.right}, B:{r.bottom})\n"
+                        except Exception as e: texto_crudo = f"Error al escanear entorno: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA - ENTORNO]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "delegar_tarea_larga":
+                        objetivo = argumentos.get("objetivo", "")
+                        try:
+                            threading.Thread(target=agente_autonomo_background, args=(page, objetivo), daemon=True).start()
+                            texto_crudo = f"Agente iniciado en segundo plano para: '{objetivo}'"
+                        except Exception as e: texto_crudo = f"Error al delegar tarea: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "crear_archivo":
+                        nombre = argumentos.get("nombre_archivo", "")
+                        contenido = argumentos.get("contenido", "")
+                        ruta_abs = os.path.abspath(nombre).lower()
+                        if "c:\\windows" in ruta_abs or "c:\\program files" in ruta_abs:
+                            texto_crudo = "Operación bloqueada por seguridad. No tienes permiso para escribir en directorios críticos."
+                        else:
+                            try:
+                                with open(nombre, "w", encoding="utf-8") as f:
+                                    f.write(contenido)
+                                texto_crudo = f"Archivo '{nombre}' creado exitosamente."
+                            except Exception as e: texto_crudo = f"Error al crear archivo: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
                         
                     # --- OTRAS HERRAMIENTAS (Puedes adaptar abrir_app y crear_archivo igual) ---
                     # elif nombre_funcion == "abrir_app": ...
@@ -259,14 +430,17 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                 segunda_respuesta = requests.post(url_api, headers=headers, json=paquete_final)
                 
                 if segunda_respuesta.status_code == 200:
-                    texto_para_voz = segunda_respuesta.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                    mensaje_final = segunda_respuesta.json().get("choices", [{}])[0].get("message", {})
+                    if not isinstance(mensaje_final, dict): mensaje_final = {}
+                    texto_para_voz = mensaje_final.get("content", "") or ""
                 else:
+                    print(f"Error de red: {segunda_respuesta.status_code} - {segunda_respuesta.text}")
                     texto_para_voz = "El motor colapsó procesando los datos de red."
 
             else:
                 # 5.B SI NO USÓ HERRAMIENTAS, SIMPLEMENTE HABLA DIRECTO
-                texto_para_voz = mensaje_ia.get("content", "")
-                if texto_para_voz is None or texto_para_voz.strip() == "":
+                texto_para_voz = mensaje_ia.get("content", "") or ""
+                if not texto_para_voz.strip():
                     texto_para_voz = "Recibí un vacío matemático."
 
             # 6. ESCRITURA EN MEMORIAS Y PUBLICACIÓN
