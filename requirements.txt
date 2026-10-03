@@ -1,0 +1,35 @@
+# =============================================================================
+# Reaxy$ Agentic OS — Dependencias Multiplataforma (Windows / macOS / Linux)
+# =============================================================================
+
+# UI & Core
+flet>=0.28.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+bcrypt>=4.2.0
+
+# Automatización & Control Físico
+pyautogui>=0.9.54
+pyperclip>=1.9.0
+Pillow>=10.0.0
+fpdf2>=2.8.0
+duckduckgo-search>=7.0.0
+playwright>=1.49.0
+pytesseract>=0.3.10
+
+# Audio & Voz
+sounddevice>=0.5.0
+scipy>=1.14.0
+numpy>=1.26.0
+faster-whisper>=1.0.0
+openwakeword>=0.6.0
+pygame-ce>=2.5.0
+edge-tts>=6.1.12
+
+# Memoria Vectorial & Plugins
+chromadb>=0.5.0
+python-pptx>=1.0.2
+
+# Dependencias exclusivas de Windows (se ignoran automáticamente en macOS/Linux)
+pywinauto>=0.6.8; sys_platform == 'win32'
+pywin32>=306; sys_platform == 'win32'

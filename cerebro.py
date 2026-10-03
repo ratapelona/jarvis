@@ -1,3 +1,5 @@
+import re
+from bs4 import BeautifulSoup
 import faster_whisper
 import sounddevice
 from scipy.io import wavfile
@@ -21,11 +23,9 @@ import seguridad
 import dattabase
 seguridad.inicializar_seguridad()
 import datetime
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+import pytesseract
+from PIL import ImageGrab
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 import pyautogui
 import pywinauto
@@ -36,15 +36,7 @@ load_dotenv()
 navegador_web = None
 
 def obtener_navegador():
-    global navegador_web
-    if navegador_web is None:
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--window-size=1920x1080")
-        navegador_web = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    return navegador_web
+    pass # Eliminado a favor de OCR de bajo nivel.
 
 hz = 16000
 matriz_len = hz * 5
@@ -53,12 +45,18 @@ carga_modelo = None
 guardiano = None
 mic_guardian = None
 
-url_api = "https://api.groq.com/openai/v1/chat/completions"
-api_key = os.getenv("GROQ_API_KEY", "")
-headers = {
-    "Authorization": f"Bearer {api_key}",
-    "Content-Type": "application/json"
-}
+# --- MOTOR: OLLAMA LOCAL (qwen3:8b) ---
+url_api = "http://localhost:11434/v1/chat/completions"
+headers = {"Content-Type": "application/json"}
+modelo_principal = "qwen3:8b"
+modelo_agente = "qwen3:8b"
+
+# --- FALLBACK GROQ (descomentar para volver a la nube) ---
+# url_api = "https://api.groq.com/openai/v1/chat/completions"
+# api_key = os.getenv("GROQ_API_KEY", "")
+# headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+# modelo_principal = "llama-3.3-70b-versatile"
+# modelo_agente = "llama-3.1-8b-instant"
 id_peticion_global = 0
 
 # --- GAFETES DE ESTADO GLOBAL ---
@@ -73,13 +71,27 @@ mis_apps = {
     "archivos": "explorer",
     "obs": 'start "" "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe"',
     "docker": 'start "" "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe"',
-    "packet tracer": 'start "" "C:\\Program Files\\Cisco Packet Tracer 9.0.0\\bin\\PacketTracer.exe"'
+    "packet tracer": 'start "" "C:\\Program Files\\Cisco Packet Tracer 9.0.0\\bin\\PacketTracer.exe"',
+    "ollama": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\Ollama\\ollama app.exe"',
+    "microsoft store": "start ms-windows-store:",
+    "chrome": 'start "" "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"',
+    "discord": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Discord\\Update.exe" --processStart Discord.exe',
+    "steam": 'start "" "C:\\Program Files (x86)\\Steam\\steam.exe"',
+    "vscode": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"',
+    "league of legends": 'start "" "C:\\Riot Games\\Riot Client\\RiotClientServices.exe"',
+    "git bash": 'start "" "C:\\Program Files\\Git\\git-bash.exe"',
+    "notepad": "notepad.exe",
+    "paint": "mspaint.exe",
+    "task manager": "taskmgr.exe",
+    "roblox": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Roblox\\Versions\\version-c5aecda2245e4fae\\RobloxPlayerBeta.exe"',
+    "antigravity": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\antigravity\\Antigravity.exe"',
+    "antigravity ide": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\Antigravity IDE\\Antigravity IDE.exe"'
 }
 nombres_apps = ", ".join(mis_apps.keys())
 
 def inicializar_sistemas_audio(page):
     global carga_modelo, guardiano, mic_guardian
-    pygame.mixer.init()
+    pygame.mixer.init() 
     try:
         openwakeword.utils.download_models()
         guardiano = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
@@ -93,26 +105,26 @@ def inicializar_sistemas_audio(page):
 
 def agente_autonomo_background(page, objetivo):
     global url_api, headers
-    page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[AGENTE INICIADO]: Trabajando en segundo plano para: {objetivo}"})
+    page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[AGENTE PREPARÁNDOSE]: Tienes 4 segundos para poner la ventana de tu curso al frente antes de que yo tome el control..."})
+    import time
+    time.sleep(4)
+    page.pubsub.send_all({"tipo": "respuesta_ia", "texto": f"[AGENTE INICIADO]: Escaneando pantalla y trabajando para: {objetivo}"})
     
     herramientas_bg = [
         { "type": "function", "function": { "name": "mover_y_click_mouse", "description": "Mueve y hace click.", "parameters": { "type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "boton": {"type": "string"}}, "required": ["x", "y", "boton"] } } },
         { "type": "function", "function": { "name": "escribir_teclado", "description": "Escribe texto fisico.", "parameters": { "type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"] } } },
         { "type": "function", "function": { "name": "presionar_tecla", "description": "Presiona tecla especial.", "parameters": { "type": "object", "properties": {"tecla": {"type": "string"}}, "required": ["tecla"] } } },
-        { "type": "function", "function": { "name": "escanear_entorno_sistema", "description": "Obtiene la lista de ventanas activas.", "parameters": { "type": "object", "properties": {}, "required": [] } } },
-        { "type": "function", "function": { "name": "buscar_internet", "description": "Busca en web.", "parameters": { "type": "object", "properties": {"tema_a_buscar": {"type": "string"}}, "required": ["tema_a_buscar"] } } },
-        { "type": "function", "function": { "name": "escanear_pantalla_web", "description": "Escanea la pantalla web actual o navega a una URL dada.", "parameters": { "type": "object", "properties": {"url": {"type": "string"}}, "required": [] } } },
-        { "type": "function", "function": { "name": "ejecutar_click", "description": "Hace clic en elemento web (Selenium).", "parameters": { "type": "object", "properties": {"selector": {"type": "string"}}, "required": ["selector"] } } },
+        { "type": "function", "function": { "name": "escanear_pantalla_ocr", "description": "Toma una captura de pantalla y usa OCR para encontrar texto. Retorna el texto encontrado y sus coordenadas X, Y.", "parameters": { "type": "object", "properties": {}, "required": [] } } },
         { "type": "function", "function": { "name": "finalizar_tarea", "description": "Termina la ejecucion autonoma.", "parameters": { "type": "object", "properties": {"reporte": {"type": "string"}}, "required": ["reporte"] } } }
     ]
 
-    mensajes = [{"role": "system", "content": f"Eres un agente en segundo plano. Tarea: {objetivo}\nUsa las herramientas. IMPORTANTE: NO borres ni edites archivos críticos. Actúa de manera eficiente. Llama a 'finalizar_tarea' cuando acabes."}]
+    mensajes = [{"role": "system", "content": f"Eres un agente robótico ciego que SOLO puede ver la pantalla usando OCR. Tarea: {objetivo}\nREGLAS INQUEBRANTABLES:\n1. DEBES invocar 'escanear_pantalla_ocr' INMEDIATAMENTE en tu primer turno. No hagas nada más.\n2. NO busques en internet. NO asumas nada.\n3. NO envíes explicaciones en texto crudo ni JSON al usuario.\n4. Usa las coordenadas (X, Y) que te dé el OCR para llamar a 'mover_y_click_mouse'.\n5. Luego usa 'escribir_teclado' si necesitas escribir código. Llama a 'finalizar_tarea' cuando termines."}]
     
     for iteracion in range(15): # Max 15 steps
-        paquete = {"model": "llama-3.3-70b-versatile", "messages": mensajes, "tools": herramientas_bg, "stream": False}
+        paquete = {"model": modelo_agente, "messages": mensajes, "tools": herramientas_bg, "stream": False}
         try:
             import requests, json, time # safe fallback
-            resp = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=paquete).json()
+            resp = requests.post(url_api, headers=headers, json=paquete).json()
             msg_ia = resp.get("choices", [{}])[0].get("message", {})
             if not isinstance(msg_ia, dict): break
             mensajes.append(msg_ia)
@@ -151,7 +163,7 @@ def agente_autonomo_background(page, objetivo):
                             mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": str(e)})
                     elif func == "escribir_teclado":
                         try:
-                            pyautogui.write(args.get("texto", "")); mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": "Ok"})
+                            import pyperclip; pyperclip.copy(args.get("texto", "")); time.sleep(0.1); pyautogui.hotkey('ctrl', 'v'); mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": "Ok"})
                         except Exception as e: mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": str(e)})
                     elif func == "presionar_tecla":
                         try:
@@ -165,20 +177,20 @@ def agente_autonomo_background(page, objetivo):
                             txt = "".join([f"{c['title']}: {c['body']}\n" for c in res]) if res else "Sin resultados"
                         except: txt = "Error de red"
                         mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
-                    elif func == "escanear_pantalla_web":
+                    elif func == "escanear_pantalla_ocr":
                         try:
-                            driver = obtener_navegador()
-                            if args.get("url"): driver.get(args.get("url")); time.sleep(2)
-                            txt = driver.find_element(By.TAG_NAME, "body").text[:2000]
-                        except Exception as e: txt = str(e)
-                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
-                    elif func == "ejecutar_click":
-                        try:
-                            driver = obtener_navegador()
-                            driver.find_element(By.CSS_SELECTOR, args.get("selector", "")).click()
-                            txt = "Click ok"
-                        except Exception as e: txt = str(e)
-                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt})
+                            img = ImageGrab.grab()
+                            data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                            resultados = []
+                            for i in range(len(data['text'])):
+                                texto_encontrado = data['text'][i].strip()
+                                if len(texto_encontrado) > 2: # Filtrar ruido pequeño
+                                    x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                                    cx, cy = x + w//2, y + h//2
+                                    resultados.append(f"'{texto_encontrado}' (X:{cx}, Y:{cy})")
+                            txt = "Resultados OCR (Coordenadas X, Y del centro):\n" + "\n".join(resultados[-150:]) 
+                        except Exception as e: txt = f"Error OCR: {str(e)}"
+                        mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": txt[:2500]})
                 
                 if terminado: break
             else:
@@ -189,6 +201,32 @@ def agente_autonomo_background(page, objetivo):
             break
 
 # --- EL CEREBRO DE ENRUTAMIENTO Y EJECUCIÓN ---
+
+def recolector_basura_asincrono(conversacion_id):
+    """Verifica si la conversación supera los 20 mensajes y comprime los más antiguos."""
+    try:
+        mensajes = seguridad.obtener_mensajes_de_conversacion(conversacion_id)
+        if len(mensajes) > 20:
+            num_a_comprimir = 10 if len(mensajes) >= 10 else len(mensajes)
+            mensajes_a_comprimir = mensajes[:num_a_comprimir]
+            texto_historial = "\n".join([f"{msg[0]}: {msg[1]}" for msg in mensajes_a_comprimir])
+            
+            prompt_resumen = f"Resume brevemente estos mensajes manteniendo el contexto clave. Sé conciso:\n{texto_historial}"
+            paquete = {
+                "model": modelo_principal, 
+                "messages": [{"role": "user", "content": prompt_resumen}],
+                "stream": False
+            }
+            
+            res = requests.post(url_api, headers=headers, json=paquete, timeout=30)
+            if res.status_code == 200:
+                resumen = res.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                resumen = re.sub(r"<think>[\s\S]*?</think>", "", resumen).strip()
+                if resumen:
+                    seguridad.comprimir_historial_sql(conversacion_id, num_a_comprimir, resumen)
+                    print(f"🗑️ Recolector de basura actuó. {num_a_comprimir} mensajes comprimidos en la BD.")
+    except Exception as e:
+        print(f"Error en recolector de basura asincrono: {e}")
 
 def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
     global id_peticion_global, rol_activo, usuario_activo, conversacion_activa_id
@@ -208,32 +246,32 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
     if rol_activo == "admin":
         fecha_hoy = datetime.datetime.now().strftime("%d de %B de %Y")
         instrucciones = (
-                    f"Eres Jarvis, el asistente de sistema y mentor de Alejandro. Hoy es {fecha_hoy}.\n\n"
-                    
-                    "1. ANÁLISIS DE INTENCIÓN Y TONO:\n"
-                    "- Abstrae la finalidad exacta del usuario. Sé amigable y relajado si el usuario es informal.\n\n"
-                    
-                    "2. ENRUTAMIENTO DE CONOCIMIENTO:\n"
-                    "- DATOS ESTÁTICOS (Teoría, física, arquitectura): Responde INMEDIATAMENTE de tu memoria.\n"
-                    "- DATOS DINÁMICOS (Noticias, precios, actualidad): Usa tu herramienta de búsqueda.\n\n"
-                    
-                    "3. MÉTODO DE ENSEÑANZA PROFUNDA:\n"
-                    "- Tu objetivo es generar comprensión real. Cero respuestas cortantes.\n"
-                    "- Explica las cosas dos veces: 1) Intuitivamente (analogías) y 2) Técnicamente (bajo nivel, memoria, kernel).\n"
-                    "- Desglosa los sistemas en 'Modelos Mentales' y explica el paso a paso físicamente.\n\n"
-                    
-                    "4. AISLAMIENTO DE MEMORIA:\n"
-                    f"- {contexto_memoria}\n"
-                    "- Usa los recuerdos SOLO si tienen relación lógica directa con la pregunta actual."
-                )
+            f"Eres Jarvis, el núcleo agéntico y mentor de Alejandro. Hoy es {fecha_hoy}.\n\n"
+            
+            "DIRECTRICES DE COMPORTAMIENTO (Basado en la intención del usuario):\n"
+            "1. MODO EJECUCIÓN (Si el usuario pide buscar, abrir, automatizar o usar herramientas):\n"
+            "- TIENES ESTRICTAMENTE PROHIBIDO generar texto conversacional, explicaciones o pasos.\n"
+            "- TU ÚNICA SALIDA VÁLIDA es invocar la herramienta correspondiente mediante Function Calling nativo.\n"
+            "- Si necesitas hacer múltiples pasos (ej. buscar y luego leer), ejecuta SOLO LA PRIMERA HERRAMIENTA. Espera el resultado del sistema antes de ejecutar la siguiente.\n\n"
+            
+            "2. MODO MENTOR (Solo si el usuario pide aprender, teoría, o hace una pregunta conceptual):\n"
+            "- Actúa con el Método de Enseñanza Profunda.\n"
+            "- Explica las cosas dos veces: 1) Intuitivamente (analogías) y 2) Técnicamente (bajo nivel).\n"
+            "- Desglosa los sistemas en 'Modelos Mentales' y explica el paso a paso físicamente.\n"
+            "- Cero respuestas cortantes en este modo.\n\n"
+            
+            "3. AISLAMIENTO DE MEMORIA:\n"
+            f"- {contexto_memoria}\n"
+            "- Usa los recuerdos SOLO si tienen relación lógica directa con la pregunta actual.\n"
+        )
         herramientas_permitidas = [
             { "type": "function", "function": { "name": "abrir_app", "description": "Abre aplicacion.", "parameters": { "type": "object", "properties": {"nombre_app": {"type": "string"}}, "required": ["nombre_app"] } } },
-            { "type": "function", "function": { "name": "buscar_internet", "description": "Busca en web.", "parameters": { "type": "object", "properties": {"tema_a_buscar": {"type": "string"}}, "required": ["tema_a_buscar"] } } },
+            { "type": "function", "function": { "name": "navegar_en_edge_abierto", "description": "Navega a una URL exacta en el navegador Edge ya abierto mediante CDP.", "parameters": { "type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"] } } },
+            { "type": "function", "function": { "name": "leer_pantalla_web", "description": "Extrae el texto y los elementos clave del DOM actual usando CDP.", "parameters": { "type": "object", "properties": {}, "required": [] } } },
+            { "type": "function", "function": { "name": "buscar_internet", "description": "Busca en web el sitio oficial de una empresa/servicio. Ignora Wikipedia u otras enciclopedias.", "parameters": { "type": "object", "properties": {"tema_a_buscar": {"type": "string"}}, "required": ["tema_a_buscar"] } } },
             { "type": "function", "function": { "name": "crear_pdf", "description": "Crea documento PDF.", "parameters": { "type": "object", "properties": {"nombre_archivo": {"type": "string"}, "contenido_texto": {"type": "string"}}, "required": ["nombre_archivo", "contenido_texto"] } } },
             { "type": "function", "function": { "name": "crear_archivo", "description": "Escribe codigo fuente.", "parameters": { "type": "object", "properties": {"nombre_archivo": {"type": "string"}, "contenido": {"type": "string"}}, "required": ["nombre_archivo", "contenido"] } } },
-            { "type": "function", "function": { "name": "escanear_pantalla_web", "description": "Escanea la pantalla web actual o navega a una URL dada.", "parameters": { "type": "object", "properties": {"url": {"type": "string", "description": "URL opcional a visitar"}}, "required": [] } } },
-            { "type": "function", "function": { "name": "ejecutar_click", "description": "Hace clic en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string", "description": "Texto, clase, ID o selector CSS del elemento"}}, "required": ["selector"] } } },
-            { "type": "function", "function": { "name": "inyectar_texto", "description": "Escribe texto en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string"}, "texto": {"type": "string"}}, "required": ["selector", "texto"] } } },
+            { "type": "function", "function": { "name": "escanear_pantalla_ocr", "description": "Toma una captura de pantalla y usa OCR para encontrar texto. Retorna el texto encontrado y sus coordenadas X, Y.", "parameters": { "type": "object", "properties": {}, "required": [] } } },
             { "type": "function", "function": { "name": "mover_y_click_mouse", "description": "Mueve y hace click en coordenadas fisicas de la pantalla.", "parameters": { "type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "boton": {"type": "string", "description": "left o right"}}, "required": ["x", "y", "boton"] } } },
             { "type": "function", "function": { "name": "escribir_teclado", "description": "Escribe texto con el teclado fisico.", "parameters": { "type": "object", "properties": {"texto": {"type": "string"}}, "required": ["texto"] } } },
             { "type": "function", "function": { "name": "presionar_tecla", "description": "Presiona tecla especial (enter, win, ctrl, etc).", "parameters": { "type": "object", "properties": {"tecla": {"type": "string"}}, "required": ["tecla"] } } },
@@ -258,7 +296,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
         lista_mensajes.append({"role": msg[0], "content": msg[1]})
 
     paquete = {
-        "model": "llama-3.3-70b-versatile", 
+        "model": modelo_principal, 
         "messages": lista_mensajes, # Inyectamos todo el historial exacto
         "stream": False
     }
@@ -277,6 +315,9 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
         if respuesta.status_code == 200:
             mensaje_ia = respuesta.json().get("choices", [{}])[0].get("message", {})
             if not isinstance(mensaje_ia, dict): mensaje_ia = {}
+            # --- QWEN FIX: Limpiar <think> tags del content ---
+            if mensaje_ia.get("content"):
+                mensaje_ia["content"] = re.sub(r"<think>[\s\S]*?</think>", "", mensaje_ia["content"]).strip()
             texto_para_voz = ""
 
             # 5. EJECUCIÓN FÍSICA DE HERRAMIENTAS (BUCLE DE AGENTE AUTÓNOMO)
@@ -301,17 +342,17 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                         try:
                             resultados = DDGS().text(tema, max_results=3)
                             if resultados:
-                                texto_crudo = "".join([f"{c['title']}: {c['body']}\n" for c in resultados])
+                                clean_results = [{"titulo": c.get("title", ""), "url": c.get("href", "")} for c in resultados]
+                                texto_crudo = json.dumps(clean_results, ensure_ascii=False)
                             else:
-                                texto_crudo = "La búsqueda no arrojó resultados."
-                        except: 
-                            texto_crudo = "Error de red. Satélites desconectados."
+                                texto_crudo = "[]"
+                        except Exception as e: 
+                            texto_crudo = f"Error de red: {e}"
                         
-                        # PASO 3: Le devolvemos el resultado a Jarvis usando el rol 'tool'
                         lista_mensajes.append({
                             "role": "tool",
                             "tool_call_id": tool.get("id"),
-                            "content": f"[SISTEMA - RESULTADOS DE BÚSQUEDA]:\n{texto_crudo}\n\nREGLA: Analiza estos datos y responde a la pregunta original del usuario con el Método de Enseñanza Profunda."
+                            "content": f"[SISTEMA - RESULTADOS DE BÚSQUEDA JSON]:\n{texto_crudo}"
                         })
                     
                     elif nombre_funcion == "escanear_pantalla_web":
@@ -321,7 +362,10 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                             if url:
                                 driver.get(url)
                                 time.sleep(2)
-                            texto_crudo = driver.find_element(By.TAG_NAME, "body").text
+                            
+                            html_crudo = driver.page_source
+                            texto_crudo = BeautifulSoup(html_crudo, "html.parser").get_text(separator=' ', strip=True)
+                            
                             if len(texto_crudo) > 4000: texto_crudo = texto_crudo[:4000] + "... (texto truncado)"
                             elif not texto_crudo: texto_crudo = "La página parece estar vacía."
                         except Exception as e:
@@ -369,7 +413,10 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                     elif nombre_funcion == "escribir_teclado":
                         texto = argumentos.get("texto", "")
                         try:
-                            pyautogui.write(texto, interval=0.01)
+                            import pyperclip
+                            pyperclip.copy(texto)
+                            time.sleep(0.1)
+                            pyautogui.hotkey('ctrl', 'v')
                             texto_crudo = f"Texto '{texto}' escrito en el teclado físico."
                         except Exception as e: texto_crudo = f"Error al escribir: {e}"
                         lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
@@ -416,13 +463,88 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                             except Exception as e: texto_crudo = f"Error al crear archivo: {e}"
                         lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
                         
-                    # --- OTRAS HERRAMIENTAS (Puedes adaptar abrir_app y crear_archivo igual) ---
-                    # elif nombre_funcion == "abrir_app": ...
+                    elif nombre_funcion == "abrir_app":
+                        nombre_key = argumentos.get("nombre_app", "").lower().strip()
+                        if nombre_key in mis_apps:
+                            try:
+                                subprocess.Popen(mis_apps[nombre_key], shell=True)
+                                time.sleep(2)
+                                texto_crudo = f"App '{nombre_key}' abierta exitosamente."
+                            except Exception as e:
+                                texto_crudo = f"Error al abrir '{nombre_key}': {e}"
+                        else:
+                            texto_crudo = f"App '{nombre_key}' no registrada. Disponibles: {nombres_apps}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "navegar_en_edge_abierto":
+                        url = argumentos.get("url", "")
+                        try:
+                            from playwright.sync_api import sync_playwright
+                            if not url.startswith("http"):
+                                url = "https://" + url
+                            with sync_playwright() as p:
+                                browser = p.chromium.connect_over_cdp("http://localhost:9222")
+                                page = browser.contexts[0].pages[0]
+                                page.goto(url)
+                                texto_crudo = f"Navegación exitosa a {url}"
+                        except Exception as e:
+                            texto_crudo = f"Error al conectar por CDP (Asegúrate de que Edge esté abierto con --remote-debugging-port=9222): {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "leer_pantalla_web":
+                        try:
+                            from playwright.sync_api import sync_playwright
+                            with sync_playwright() as p:
+                                browser = p.chromium.connect_over_cdp("http://localhost:9222")
+                                page = browser.contexts[0].pages[0]
+                                script = """
+                                () => {
+                                    const elements = document.querySelectorAll('a, button, input, h1, h2, p');
+                                    let summary = [];
+                                    elements.forEach(el => {
+                                        let text = el.innerText || el.value || el.placeholder || '';
+                                        text = text.trim();
+                                        if(text.length > 0) {
+                                            summary.push({tag: el.tagName, text: text.substring(0, 50)});
+                                        }
+                                    });
+                                    return JSON.stringify(summary).substring(0, 3000);
+                                }
+                                """
+                                dom_summary = page.evaluate(script)
+                                texto_crudo = dom_summary
+                        except Exception as e:
+                            texto_crudo = f"Error al extraer DOM por CDP: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA - DOM EXTRACT]:\n{texto_crudo}"})
+
+                    elif nombre_funcion == "crear_pdf":
+                        nombre_pdf = argumentos.get("nombre_archivo", "documento.pdf")
+                        contenido_pdf = argumentos.get("contenido_texto", "")
+                        try:
+                            if not nombre_pdf.lower().endswith(".pdf"):
+                                nombre_pdf += ".pdf"
+                            ruta_pdf = os.path.join("output", nombre_pdf)
+                            os.makedirs("output", exist_ok=True)
+                            pdf_obj = FPDF()
+                            pdf_obj.add_page()
+                            pdf_obj.set_auto_page_break(auto=True, margin=15)
+                            pdf_obj.set_font("Helvetica", size=12)
+                            for linea_pdf in contenido_pdf.split("\n"):
+                                pdf_obj.cell(0, 10, linea_pdf, new_x="LMARGIN", new_y="NEXT")
+                            pdf_obj.output(ruta_pdf)
+                            texto_crudo = f"PDF '{nombre_pdf}' creado en: {os.path.abspath(ruta_pdf)}"
+                        except Exception as e:
+                            texto_crudo = f"Error al crear PDF: {e}"
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]:\n{texto_crudo}"})
+
+                    else:
+                        # FALLBACK: herramienta no reconocida, devolver respuesta para no romper el ciclo
+                        lista_mensajes.append({"role": "tool", "tool_call_id": tool.get("id"), "content": f"[SISTEMA]: Herramienta '{nombre_funcion}' no implementada."})
                 
                 # PASO 4: EL SEGUNDO GOLPE (La síntesis final)
                 # Volvemos a llamar a la API ahora que ya tiene la info de internet en su memoria
                 paquete_final = {
-                    "model": "llama-3.3-70b-versatile",
+                    "model": modelo_principal,
                     "messages": lista_mensajes,
                     "stream": False
                 }
@@ -433,6 +555,8 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                     mensaje_final = segunda_respuesta.json().get("choices", [{}])[0].get("message", {})
                     if not isinstance(mensaje_final, dict): mensaje_final = {}
                     texto_para_voz = mensaje_final.get("content", "") or ""
+                    # --- QWEN FIX: Limpiar <think> tags de la segunda respuesta ---
+                    texto_para_voz = re.sub(r"<think>[\s\S]*?</think>", "", texto_para_voz).strip()
                 else:
                     print(f"Error de red: {segunda_respuesta.status_code} - {segunda_respuesta.text}")
                     texto_para_voz = "El motor colapsó procesando los datos de red."
@@ -440,6 +564,8 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
             else:
                 # 5.B SI NO USÓ HERRAMIENTAS, SIMPLEMENTE HABLA DIRECTO
                 texto_para_voz = mensaje_ia.get("content", "") or ""
+                # --- QWEN FIX: Limpiar <think> tags de respuesta directa ---
+                texto_para_voz = re.sub(r"<think>[\s\S]*?</think>", "", texto_para_voz).strip()
                 if not texto_para_voz.strip():
                     texto_para_voz = "Recibí un vacío matemático."
 
@@ -448,6 +574,8 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
             if texto_para_voz.strip() != "":
                 # Escribimos el efecto en el Diario SQL
                 seguridad.guardar_mensaje_sql(conversacion_activa_id, "assistant", texto_para_voz)
+                # Ejecutar Garbage Collector en 2do plano
+                threading.Thread(target=recolector_basura_asincrono, args=(conversacion_activa_id,), daemon=True).start()
                 # Escribimos la idea en el Subconsciente Vectorial
                 dattabase.guardar_recuerdo(f"msg_{int(time.time())}", f"Humano: {texto_usuario} | IA: {texto_para_voz}", usuario_activo)
                 

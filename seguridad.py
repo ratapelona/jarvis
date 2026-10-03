@@ -137,3 +137,27 @@ def obtener_mensajes_de_conversacion(conversacion_id):
     
     conexion.close()
     return resultados
+
+def comprimir_historial_sql(conversacion_id, num_mensajes, resumen_texto):
+    """Reemplaza los primeros N mensajes de una conversacion con un resumen."""
+    conexion = sqlite3.connect("recepcion_jarvis.db")
+    cursor = conexion.cursor()
+    
+    # Obtener IDs de los mensajes más antiguos
+    cursor.execute("SELECT id FROM mensajes WHERE conversacion_id = ? ORDER BY id ASC LIMIT ?", (conversacion_id, num_mensajes))
+    ids = cursor.fetchall()
+    
+    if len(ids) > 0:
+        primer_id = ids[0][0]
+        # Actualizar el primero para que sea el resumen del sistema
+        texto_resumen = f"[RESUMEN DE MEMORIA A LARGO PLAZO]: {resumen_texto}"
+        cursor.execute("UPDATE mensajes SET rol_emisor = 'system', contenido = ? WHERE id = ?", (texto_resumen, primer_id))
+        
+        # Eliminar los demás
+        if len(ids) > 1:
+            ids_a_borrar = [row[0] for row in ids[1:]]
+            placeholders = ','.join('?' * len(ids_a_borrar))
+            cursor.execute(f"DELETE FROM mensajes WHERE id IN ({placeholders})", ids_a_borrar)
+            
+    conexion.commit()
+    conexion.close()

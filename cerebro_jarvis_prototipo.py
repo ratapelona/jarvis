@@ -1,3 +1,4 @@
+from bs4 import BeautifulSoup
 import faster_whisper
 import sounddevice
 from scipy.io import wavfile
@@ -72,7 +73,21 @@ mis_apps = {
     "archivos": "explorer",
     "obs": 'start "" "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe"',
     "docker": 'start "" "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe"',
-    "packet tracer": 'start "" "C:\\Program Files\\Cisco Packet Tracer 9.0.0\\bin\\PacketTracer.exe"'
+    "packet tracer": 'start "" "C:\\Program Files\\Cisco Packet Tracer 9.0.0\\bin\\PacketTracer.exe"',
+    "ollama": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\Ollama\\ollama app.exe"',
+    "microsoft store": "start ms-windows-store:",
+    "chrome": 'start "" "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"',
+    "discord": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Discord\\Update.exe" --processStart Discord.exe',
+    "steam": 'start "" "C:\\Program Files (x86)\\Steam\\steam.exe"',
+    "vscode": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"',
+    "league of legends": 'start "" "C:\\Riot Games\\Riot Client\\RiotClientServices.exe"',
+    "git bash": 'start "" "C:\\Program Files\\Git\\git-bash.exe"',
+    "notepad": "notepad.exe",
+    "paint": "mspaint.exe",
+    "task manager": "taskmgr.exe",
+    "roblox": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Roblox\\Versions\\version-c5aecda2245e4fae\\RobloxPlayerBeta.exe"',
+    "antigravity": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\antigravity\\Antigravity.exe"',
+    "antigravity ide": 'start "" "C:\\Users\\alexa\\AppData\\Local\\Programs\\Antigravity IDE\\Antigravity IDE.exe"'
 }
 nombres_apps = ", ".join(mis_apps.keys())
 
@@ -90,6 +105,32 @@ def inicializar_sistemas_audio(page):
         print(f"Error fatal de audio: {e}")
 
 # --- EL CEREBRO DE ENRUTAMIENTO Y EJECUCIÓN ---
+def recolector_basura_asincrono(conversacion_id):
+    """Verifica si la conversación supera los 20 mensajes y comprime los más antiguos."""
+    try:
+        mensajes = seguridad.obtener_mensajes_de_conversacion(conversacion_id)
+        if len(mensajes) > 20:
+            num_a_comprimir = 10 if len(mensajes) >= 10 else len(mensajes)
+            mensajes_a_comprimir = mensajes[:num_a_comprimir]
+            texto_historial = "\n".join([f"{msg[0]}: {msg[1]}" for msg in mensajes_a_comprimir])
+            
+            prompt_resumen = f"Resume brevemente estos mensajes manteniendo el contexto clave. Sé conciso:\n{texto_historial}"
+            paquete = {
+                "model": "qwen3:8b", 
+                "messages": [{"role": "user", "content": prompt_resumen}],
+                "stream": False
+            }
+            
+            res = requests.post(url_api, headers=headers, json=paquete, timeout=30)
+            if res.status_code == 200:
+                resumen = res.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                resumen = re.sub(r"<think>[\s\S]*?</think>", "", resumen).strip()
+                if resumen:
+                    seguridad.comprimir_historial_sql(conversacion_id, num_a_comprimir, resumen)
+                    print(f"🗑️ Recolector de basura actuó. {num_a_comprimir} mensajes comprimidos en la BD.")
+    except Exception as e:
+        print(f"Error en recolector de basura asincrono: {e}")
+
 def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
     global id_peticion_global, rol_activo, usuario_activo, conversacion_activa_id
     
@@ -106,26 +147,36 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
 
     # 3. INGENIERÍA DE PROMPTS AVANZADA (CÓDIGO ALPHA)
     if rol_activo == "admin":
+        import datetime
+        fecha_hoy = datetime.datetime.now().strftime("%d de %B de %Y")
         instrucciones = (
-            f"Eres Jarvis, el asistente de sistema y mentor de {usuario_activo}.\n\n"
-            "1. ANÁLISIS DE INTENCIÓN (ABSTRACCIÓN):\n"
-            "- Abstrae la intención real del usuario. No te quedes con palabras aisladas, entiende el contexto completo.\n"
-            "- Si el usuario usa lenguaje informal o jerga (ej. 'papu', 'ola'), adapta tu tono para ser amigable y relajado. No seas un robot.\n\n"
-            "2. MÉTODO DE APRENDIZAJE (CAUSA Y EFECTO):\n"
-            "- Si el usuario busca información, explícale el 'porqué' usando modelos mentales y analogías claras.\n\n"
-            "3. AISLAMIENTO DE MEMORIA (CRÍTICO):\n"
+            f"Eres Jarvis, el núcleo agéntico y mentor de {usuario_activo}. Hoy es {fecha_hoy}.\n\n"
+            
+            "DIRECTRICES DE COMPORTAMIENTO (Basado en la intención del usuario):\n"
+            "1. MODO EJECUCIÓN (Si el usuario pide buscar, abrir, automatizar o usar herramientas):\n"
+            "- TIENES ESTRICTAMENTE PROHIBIDO generar texto conversacional, explicaciones o pasos.\n"
+            "- TU ÚNICA SALIDA VÁLIDA es invocar la herramienta correspondiente mediante Function Calling nativo.\n"
+            "- Si necesitas hacer múltiples pasos (ej. buscar y luego leer), ejecuta SOLO LA PRIMERA HERRAMIENTA. Espera el resultado del sistema antes de ejecutar la siguiente.\n\n"
+            
+            "2. MODO MENTOR (Solo si el usuario pide aprender, teoría, o hace una pregunta conceptual):\n"
+            "- Actúa con el Método de Enseñanza Profunda.\n"
+            "- Explica las cosas dos veces: 1) Intuitivamente (analogías) y 2) Técnicamente (bajo nivel).\n"
+            "- Desglosa los sistemas en 'Modelos Mentales' y explica el paso a paso físicamente.\n"
+            "- Cero respuestas cortantes en este modo.\n\n"
+            
+            "3. AISLAMIENTO DE MEMORIA:\n"
             f"- {contexto_memoria}\n"
-            "- REGLA DE ORO: Usa los recuerdos SOLO si tienen relación lógica directa con la pregunta. IGNÓRALOS si son irrelevantes.\n\n"
+            "- Usa los recuerdos SOLO si tienen relación lógica directa con la pregunta actual.\n\n"
+            
             "4. EJECUCIÓN SILENCIOSA DE HERRAMIENTAS:\n"
             f"- Tienes acceso a estas apps: {nombres_apps} y herramientas de sistema.\n"
-            "- PROHIBICIÓN TOTAL: NUNCA escribas el código JSON, diccionarios o comandos de herramientas en el chat. Jamás digas 'voy a usar la función X'.\n"
-            "- Las herramientas deben ejecutarse en completo SILENCIO usando el canal del sistema (Function Calling). Piensa, ejecuta la herramienta en silencio, y solo usa el texto para darle la respuesta final al humano."
+            "- Las herramientas deben ejecutarse en completo SILENCIO usando el canal del sistema (Function Calling)."
         )
         herramientas_permitidas = [
             { "type": "function", "function": { "name": "abrir_app", "description": "Abre aplicacion.", "parameters": { "type": "object", "properties": {"nombre_app": {"type": "string"}}, "required": ["nombre_app"] } } },
             { "type": "function", "function": { "name": "buscar_internet", "description": "Busca en web.", "parameters": { "type": "object", "properties": {"tema_a_buscar": {"type": "string"}}, "required": ["tema_a_buscar"] } } },
             { "type": "function", "function": { "name": "crear_pdf", "description": "Crea documento PDF.", "parameters": { "type": "object", "properties": {"nombre_archivo": {"type": "string"}, "contenido_texto": {"type": "string"}}, "required": ["nombre_archivo", "contenido_texto"] } } },
-            { "type": "function", "function": { "name": "crear_archivo", "description": "Escribe codigo fuente.", "parameters": { "type": "object", "properties": {"nombre_archivo": {"type": "string"}, "contenido": {"type": "string"}}, "required": ["nombre_archivo", "contenido"] } } },
+            { "type": "function", "function": { "name": "crear_archivo", "description": "Escribe codigo fuente. (Siempre se guardara en W:\\prcts\\jarvis_proyect\\output)", "parameters": { "type": "object", "properties": {"nombre_archivo": {"type": "string"}, "contenido": {"type": "string"}}, "required": ["nombre_archivo", "contenido"] } } },
             { "type": "function", "function": { "name": "escanear_pantalla_web", "description": "Escanea la pantalla web actual o navega a una URL dada.", "parameters": { "type": "object", "properties": {"url": {"type": "string", "description": "URL opcional a visitar"}}, "required": [] } } },
             { "type": "function", "function": { "name": "ejecutar_click", "description": "Hace clic en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string", "description": "Texto, clase, ID o selector CSS del elemento"}}, "required": ["selector"] } } },
             { "type": "function", "function": { "name": "inyectar_texto", "description": "Escribe texto en un elemento web.", "parameters": { "type": "object", "properties": {"selector": {"type": "string"}, "texto": {"type": "string"}}, "required": ["selector", "texto"] } } }
@@ -187,6 +238,7 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                         app_solicitada = argumentos.get("nombre_app", "").lower().strip()
                         if app_solicitada in mis_apps:
                             subprocess.Popen(mis_apps[app_solicitada], shell=True)
+                            time.sleep(2)
                             texto_para_voz = f"Iniciando {app_solicitada}, señor."
                         else: texto_para_voz = f"No encuentro la aplicacion {app_solicitada}."
                             
@@ -239,7 +291,10 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
                             if url:
                                 driver.get(url)
                                 time.sleep(2)
-                            texto_crudo = driver.find_element(By.TAG_NAME, "body").text
+                            
+                            html_crudo = driver.page_source
+                            texto_crudo = BeautifulSoup(html_crudo, "html.parser").get_text(separator=' ', strip=True)
+                            
                             if len(texto_crudo) > 4000: texto_crudo = texto_crudo[:4000] + "... (texto truncado)"
                             elif not texto_crudo: texto_crudo = "La página parece estar vacía."
                             
@@ -296,7 +351,10 @@ def procesar_peticion_ia(page, texto_usuario, usar_voz=True, id_peticion=0):
             # 6. ESCRITURA EN MEMORIAS Y PUBLICACIÓN
             page.pubsub.send_all({"tipo": "pensando", "estado": False, "id": id_peticion})
             if texto_para_voz.strip() != "":
+                # Escribimos el efecto en el Diario SQL
                 seguridad.guardar_mensaje_sql(conversacion_activa_id, "assistant", texto_para_voz)
+                # Ejecutar Garbage Collector en 2do plano
+                threading.Thread(target=recolector_basura_asincrono, args=(conversacion_activa_id,), daemon=True).start()
                 dattabase.guardar_recuerdo(f"msg_{int(time.time())}", f"Humano: {texto_usuario} | IA: {texto_para_voz}", usuario_activo)
                 page.pubsub.send_all({"tipo": "respuesta_ia", "texto": texto_para_voz})
 

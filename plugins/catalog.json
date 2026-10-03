@@ -1,0 +1,345 @@
+[
+  {
+    "id": "pptx_generator",
+    "nombre": "Generador de Presentaciones (PPTX)",
+    "categoria": "Productividad & Diseño",
+    "tipo": "local_python",
+    "plataformas": "Local / PowerPoint / Google Slides",
+    "uso": "Crea diapositivas profesionales con formato, viñetas, esquemas de color y layouts limpios en formato .pptx en el sandbox.",
+    "ideal_para": "Presentaciones ejecutivas, informes, resúmenes de proyectos y material educativo.",
+    "recomendado": true,
+    "instalado": true,
+    "activo": true,
+    "requiere_config": false
+  },
+  {
+    "id": "davinci_resolve_free",
+    "nombre": "DaVinci Resolve (Free Edition)",
+    "categoria": "Edición Audiovisual",
+    "tipo": "local_python",
+    "plataformas": "Multiplataforma (Windows / macOS / Linux)",
+    "uso": "Automatiza la versión gratuita de DaVinci Resolve: creación de proyectos, inserción de clips en la línea de tiempo, cortes y exportación por atajos de teclado y scripting.",
+    "ideal_para": "Edición y montaje automatizado de video, render de clips y sincronización.",
+    "recomendado": true,
+    "instalado": true,
+    "activo": true,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "exe_path", "label": "Ruta de Resolve.exe o DaVinci Resolve.app", "default": ""}
+    ]
+  },
+  {
+    "id": "blender_3d",
+    "nombre": "Blender 3D Suite",
+    "categoria": "Modelado & Render 3D",
+    "tipo": "local_python",
+    "plataformas": "Multiplataforma (Windows / macOS / Linux)",
+    "uso": "Genera y ejecuta scripts Python (bpy) en modo headless o interactivo para modelado 3D, animación, iluminación y renderizado de imágenes y video.",
+    "ideal_para": "Renderizado 3D de modelos, generación de geometrías, conversiones de formato y visualizaciones.",
+    "recomendado": true,
+    "instalado": true,
+    "activo": true,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "exe_path", "label": "Ruta de Blender (opcional si está en PATH o /Applications)", "default": ""}
+    ]
+  },
+  {
+    "id": "autocad_suite",
+    "nombre": "AutoCAD Design Suite",
+    "categoria": "CAD & Ingeniería",
+    "tipo": "local_python",
+    "plataformas": "Multiplataforma (COM en Windows / Scripts .scr en macOS y Linux)",
+    "uso": "Controla AutoCAD vía COM en Windows y mediante scripts .scr / DXF automáticos en macOS y Linux.",
+    "ideal_para": "Planos arquitectónicos, ingeniería, automatización de dibujos técnicos y exportación de láminas.",
+    "recomendado": true,
+    "instalado": true,
+    "activo": true,
+    "requiere_config": false
+  },
+  {
+    "id": "google_workspace",
+    "nombre": "Google Workspace",
+    "categoria": "Productividad Cloud",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Gemini, Claude, Reaxy$",
+    "uso": "Buscar y resumir correos, documentos, calendarios, Drive, Sheets y Slides.",
+    "ideal_para": "Trabajo diario, investigación, reuniones y organización.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "service_account_json", "label": "Ruta archivo credenciales JSON", "default": ""}
+    ]
+  },
+  {
+    "id": "slack",
+    "nombre": "Slack",
+    "categoria": "Comunicación & Equipos",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Claude, Reaxy$",
+    "uso": "Buscar conversaciones, resumir canales, redactar y enviar mensajes.",
+    "ideal_para": "Equipos, soporte y seguimiento de proyectos.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "bot_token", "label": "Bot User OAuth Token (xoxb-...)", "default": ""}
+    ]
+  },
+  {
+    "id": "github",
+    "nombre": "GitHub",
+    "categoria": "Desarrollo de Software",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Gemini, Claude, Reaxy$",
+    "uso": "Analizar repositorios, revisar código, buscar issues y explicar errores.",
+    "ideal_para": "Programación, auditorías y documentación técnica.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "personal_access_token", "label": "GitHub Personal Access Token (ghp_...)", "default": ""}
+    ]
+  },
+  {
+    "id": "notion",
+    "nombre": "Notion",
+    "categoria": "Gestión del Conocimiento",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Claude, Reaxy$",
+    "uso": "Consultar wikis, notas, bases de conocimiento y documentación interna.",
+    "ideal_para": "Centralizar información de empresa.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "integration_secret", "label": "Notion Internal Integration Token", "default": ""}
+    ]
+  },
+  {
+    "id": "microsoft_365",
+    "nombre": "Microsoft 365",
+    "categoria": "Productividad Corporativa",
+    "tipo": "mcp_connector",
+    "plataformas": "Principalmente ChatGPT, Reaxy$",
+    "uso": "Outlook, Calendar, Teams, SharePoint y OneNote.",
+    "ideal_para": "Empresas que trabajan con Office.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "client_id", "label": "Azure AD Client ID", "default": ""},
+      {"key": "tenant_id", "label": "Tenant ID", "default": ""}
+    ]
+  },
+  {
+    "id": "google_drive",
+    "nombre": "Google Drive",
+    "categoria": "Almacenamiento Cloud",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Gemini, Claude, Reaxy$",
+    "uso": "Localizar archivos, leer PDFs y resumir documentos.",
+    "ideal_para": "Bibliotecas documentales y trabajo colaborativo.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "api_key", "label": "Google Drive API Key", "default": ""}
+    ]
+  },
+  {
+    "id": "google_calendar",
+    "nombre": "Google Calendar",
+    "categoria": "Agenda & Tiempo",
+    "tipo": "mcp_connector",
+    "plataformas": "Gemini, Claude, Reaxy$",
+    "uso": "Consultar, crear y organizar eventos.",
+    "ideal_para": "Agenda, reuniones y planificación personal.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "gmail",
+    "nombre": "Gmail",
+    "categoria": "Correo Electrónico",
+    "tipo": "mcp_connector",
+    "plataformas": "Gemini, Claude, Reaxy$",
+    "uso": "Buscar correos, resumir hilos y preparar respuestas.",
+    "ideal_para": "Gestión de correo y seguimiento comercial.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "linear",
+    "nombre": "Linear",
+    "categoria": "Gestión de Software",
+    "tipo": "mcp_connector",
+    "plataformas": "Claude, Reaxy$",
+    "uso": "Crear, consultar y actualizar incidencias de producto o desarrollo.",
+    "ideal_para": "Equipos de software y product management.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "api_key", "label": "Linear API Key (lin_api_...)", "default": ""}
+    ]
+  },
+  {
+    "id": "figma",
+    "nombre": "Figma",
+    "categoria": "Diseño UI/UX",
+    "tipo": "mcp_connector",
+    "plataformas": "Claude, ChatGPT, Reaxy$",
+    "uso": "Revisar diseños, comentar pantallas y convertir diseño en tareas.",
+    "ideal_para": "Diseño UX/UI y handoff a desarrollo.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "access_token", "label": "Figma Personal Access Token", "default": ""}
+    ]
+  },
+  {
+    "id": "canva",
+    "nombre": "Canva",
+    "categoria": "Diseño Gráfico",
+    "tipo": "mcp_connector",
+    "plataformas": "Claude, ChatGPT, Reaxy$",
+    "uso": "Crear y editar piezas visuales, presentaciones y contenido.",
+    "ideal_para": "Marketing, redes sociales y ventas.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "asana",
+    "nombre": "Asana",
+    "categoria": "Gestión de Proyectos",
+    "tipo": "mcp_connector",
+    "plataformas": "Claude, Reaxy$",
+    "uso": "Consultar proyectos, actualizar tareas y tableros.",
+    "ideal_para": "Gestión operativa de equipos.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "box",
+    "nombre": "Box",
+    "categoria": "Almacenamiento Cloud",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Claude, Reaxy$",
+    "uso": "Buscar, leer y organizar archivos empresariales.",
+    "ideal_para": "Empresas con repositorios documentales en Box.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "dropbox",
+    "nombre": "Dropbox",
+    "categoria": "Almacenamiento Cloud",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Consultar documentos y archivos almacenados.",
+    "ideal_para": "Equipos creativos y archivos compartidos.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "sharepoint",
+    "nombre": "SharePoint",
+    "categoria": "Gestión Documental",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Buscar contenido corporativo, políticas, manuales y archivos internos.",
+    "ideal_para": "Empresas Microsoft.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "microsoft_teams",
+    "nombre": "Microsoft Teams",
+    "categoria": "Comunicación Empresarial",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Resumir conversaciones, localizar decisiones y consultar canales.",
+    "ideal_para": "Comunicación interna empresarial.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "outlook_email_calendar",
+    "nombre": "Outlook Email y Calendar",
+    "categoria": "Correo & Agenda",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Consultar correo, contactos y agenda.",
+    "ideal_para": "Ventas, operaciones y administración.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "gitlab",
+    "nombre": "GitLab",
+    "categoria": "DevOps & Código",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Analizar proyectos, merge requests, incidencias y CI/CD.",
+    "ideal_para": "Equipos de ingeniería que usan GitLab.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "zendesk",
+    "nombre": "Zendesk",
+    "categoria": "Soporte al Cliente",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Consultar tickets, artículos de ayuda y contexto de clientes.",
+    "ideal_para": "Soporte al cliente y mesa de ayuda.",
+    "recomendado": true,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  },
+  {
+    "id": "snowflake_databricks",
+    "nombre": "Snowflake / Databricks",
+    "categoria": "Big Data & Analítica",
+    "tipo": "mcp_connector",
+    "plataformas": "ChatGPT, Reaxy$",
+    "uso": "Consultar datos empresariales y apoyar análisis de gran escala.",
+    "ideal_para": "Analítica, BI y equipos de datos.",
+    "recomendado": false,
+    "instalado": false,
+    "activo": false,
+    "requiere_config": true
+  }
+]

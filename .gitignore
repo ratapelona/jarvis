@@ -5,3 +5,8 @@ cerebro_jarvis/
 *.wav
 *.mp3
 *.pdf
+output/
+.vscode/
+build/
+dist/
+session_store.json
