@@ -113,11 +113,17 @@ herramientas_permitidas = HERRAMIENTAS_ADMIN + plugin_manager.obtener_herramient
 # se confina estrictamente dentro del directorio output/
 ```
 
-### ESC-09: VRAM Guard / Serialización FIFO
+### ESC-09: VRAM Guard / Serialización FIFO y Orquestación Atómica de Modelos
 ```python
-# Cola FIFO centralizada con worker daemon que serializa las llamadas al LLM
-cola_mensajes.encolar_peticion(callback, args, page)
-# Previene OOM en GPU y condiciones de carrera entre hilos de voz y texto
+# 1. Cola FIFO centralizada con worker daemon que serializa TODAS las llamadas al LLM:
+cola_mensajes.solicitar_inferencia_ollama(paquete_req, ...)
+
+# 2. Transición atómica para delegar_tarea_larga:
+# Descarga 9B residente -> Carga 20B pesado -> Ejecuta agente ReAct -> Descarga 20B -> Restaura 9B residente
+# Garantiza que OLLAMA_MAX_LOADED_MODELS=1 nunca se viole y previene OOM en GPU.
+
+# 3. Guardarraíles idénticos: SEC-05, SEC-06, SEC-07, SEC-11 y SEC-12 aplican
+# con exactamente el mismo rigor tanto en modo rápido (9B) como en modo pesado (20B).
 ```
 
 

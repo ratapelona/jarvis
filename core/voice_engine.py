@@ -28,8 +28,16 @@ from config import (
     SILENCE_TIMEOUT_SECS,
     MAX_RECORDING_SECS,
     NO_SPEECH_TIMEOUT_SECS,
+    WHISPER_MODEL,
+    WHISPER_DEVICE,
+    WHISPER_COMPUTE_TYPE,
 )
-from core.cola_mensajes import encolar_peticion
+from core.cola_mensajes import (
+    encolar_peticion,
+    esta_en_modo_pesado,
+    cancelar_tarea_pesada,
+    obtener_tamano_cola,
+)
 
 # =============================================================================
 # Estado global del motor de audio
@@ -50,7 +58,11 @@ def inicializar_sistemas_audio(page: ft.Page):
     try:
         openwakeword.utils.download_models()
         _guardiano = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
-        _carga_modelo = faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")
+        _carga_modelo = faster_whisper.WhisperModel(
+            WHISPER_MODEL,
+            device=WHISPER_DEVICE,
+            compute_type=WHISPER_COMPUTE_TYPE,
+        )
         _mic_guardian = sounddevice.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16")
         _mic_guardian.start()
         page.pubsub.send_all({"tipo": "audio_listo"})
@@ -131,14 +143,39 @@ def motor_jarvis(page: ft.Page, id_peticion_ref: list, procesar_callback):
             if transcripcion == "":
                 continue
 
-            # --- Despachar al motor IA via cola (ESC-09) ---
-            id_peticion_ref[0] += 1
-            page.pubsub.send_all({"tipo": "mensaje_usuario_ui", "texto": transcripcion})
-            encolar_peticion(
-                procesar_callback,
-                (page, transcripcion, True, id_peticion_ref[0]),
-                page,
-            )
+            # --- Comportamiento si llega petición de voz durante Modo Pesado ---
+            transcripcion_lower = transcripcion.lower().strip()
+            if esta_en_modo_pesado():
+                palabras_cancel = ["cancelar", "cancela", "detener", "detén", "detente", "abortar", "stop", "para"]
+                if any(p in transcripcion_lower for p in palabras_cancel):
+                    cancelar_tarea_pesada()
+                    page.pubsub.send_all({
+                        "tipo": "respuesta_ia",
+                        "texto": f"🛑 [Voz]: '{transcripcion}' detectado. Cancelando tarea en modo pesado...",
+                    })
+                    continue
+                else:
+                    # Encolar: La tarea pesada está ocupando Ollama, la petición de voz espera su turno
+                    id_peticion_ref[0] += 1
+                    page.pubsub.send_all({"tipo": "mensaje_usuario_ui", "texto": transcripcion})
+                    page.pubsub.send_all({
+                        "tipo": "respuesta_ia",
+                        "texto": f"⏳ [Voz]: Modo pesado en ejecución. Tu petición ha sido encolada (turno #{obtener_tamano_cola() + 1}).",
+                    })
+                    encolar_peticion(
+                        procesar_callback,
+                        (page, transcripcion, True, id_peticion_ref[0]),
+                        page,
+                    )
+            else:
+                # --- Despachar al motor IA via cola (ESC-09) ---
+                id_peticion_ref[0] += 1
+                page.pubsub.send_all({"tipo": "mensaje_usuario_ui", "texto": transcripcion})
+                encolar_peticion(
+                    procesar_callback,
+                    (page, transcripcion, True, id_peticion_ref[0]),
+                    page,
+                )
 
     except KeyboardInterrupt:
         pass

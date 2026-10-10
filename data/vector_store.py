@@ -6,14 +6,23 @@ Reemplazo de dattabase.py con:
 - Misma API multi-inquilino con filtros por dueño
 """
 import chromadb
+from chromadb.utils import embedding_functions
 
 from config import CHROMA_PATH, CHROMA_COLLECTION, MAX_RECUERDOS_POR_USUARIO
+
+# =============================================================================
+# Embeddings 100% locales en CPU (ONNX all-MiniLM-L6-v2) — NUNCA vía Ollama
+# =============================================================================
+_embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 
 # =============================================================================
 # Conexión a la bóveda vectorial
 # =============================================================================
 _boveda = chromadb.PersistentClient(path=CHROMA_PATH)
-_memoria = _boveda.get_or_create_collection(name=CHROMA_COLLECTION)
+_memoria = _boveda.get_or_create_collection(
+    name=CHROMA_COLLECTION,
+    embedding_function=_embedding_fn,
+)
 
 
 # =============================================================================

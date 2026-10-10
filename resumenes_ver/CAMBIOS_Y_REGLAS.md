@@ -6,6 +6,40 @@
 
 ## 🔄 Historial de Cambios (Changelog)
 
+### 🏷️ alpha 2.1 — Cambio de Arquitectura Ollama (Modelo Residente qwen3.5:9b, Modo Pesado gpt-oss:20b y CPU Local)
+
+**Hitos Principales de la Versión 2.1:**
+- **Modelo Único Residente (`qwen3.5:9b`):**
+  - Configuración fija de variables de usuario de Windows: `OLLAMA_MAX_LOADED_MODELS=1` y `OLLAMA_KEEP_ALIVE=-1` (requiere reiniciar Ollama una vez establecidas).
+  - En todas las peticiones a la API: `keep_alive: -1`, `think: False` estricto (cero tokens de razonamiento generados) y opciones fijas (`options: {"num_ctx": 8192, "temperature": 0.1}`) para evitar recargas o reasignaciones de memoria de contexto.
+  - Al iniciar la app (`ui/app.py`), se ejecuta `precalentar_modelo_residente()` en un hilo de fondo enviando una petición vacía para asegurar que `qwen3.5:9b` esté caliente y anclado en VRAM antes del primer comando.
+- **Modo Pesado Serializado (`gpt-oss:20b` con razonamiento "low"):**
+  - Exclusivo para la herramienta `delegar_tarea_larga` y la pestaña de trabajo de fondo (OS).
+  - Toda la transición se gestiona dentro de `core/cola_mensajes.py` como una sola operación serializada atómica:
+    1. Notificación visual en UI (`PubSub`).
+    2. Descarga forzada del 9B de VRAM (`keep_alive: 0`).
+    3. Carga del 20B (`gpt-oss:20b`, `think: "low"`, `keep_alive: -1`, `num_ctx: 8192`).
+    4. Ejecución del agente (`core/agente.py` **NO** llama a Ollama directo; canaliza toda inferencia mediante `solicitar_inferencia_ollama()`).
+    5. Descarga del 20B (`keep_alive: 0`) y restauración inmediata del 9B residente (`keep_alive: -1`, `think: False`).
+    6. Notificación visual en UI de finalización o cancelación (sin audio).
+- **Regla Estricta de Síntesis de Voz: Cero TTS en Acciones de OS:**
+  - El modelo **NUNCA** responde hablando (cero TTS) durante la ejecución de tareas de OS, herramientas del sistema o Modo Pesado.
+  - La síntesis de voz es **exclusiva de la sección de voz** (diálogo oral interactivo). En modo OS, herramientas y texto, la comunicación es 100% silenciosa a través de la UI.
+- **Manejo de Peticiones de Voz durante Modo Pesado:**
+  - Si el usuario habla mientras el modo pesado está activo:
+    - Si el comando contiene palabras de cancelación (*"cancela"*, *"detén"*, *"abortar"*, *"stop"*), activa `cancelar_tarea_pesada()` y detiene el agente inmediatamente.
+    - Si es una consulta normal, **se encola** en la cola FIFO informando al usuario en la UI, ejecutándose automáticamente una vez restaurado el 9B.
+- **Enrutador Determinista (`enrutador_llm.py`):**
+  - Eliminada la selección con modelos especialistas (`qwen2.5-coder:7b`, `nomic-embed-text`) y eliminadas las llamadas a la API de Ollama para decidir.
+  - Regla fija determinista (0 ms de overhead): Rápido (`qwen3.5:9b`) por defecto; Pesado (`gpt-oss:20b`) únicamente desde `delegar_tarea_larga`.
+- **ChromaDB y Whisper en CPU (Cero Dependencia de Ollama para Embeddings):**
+  - ChromaDB en `data/vector_store.py` utiliza explícitamente `embedding_functions.DefaultEmbeddingFunction()` (ONNX `all-MiniLM-L6-v2` en CPU). Nunca invoca a Ollama para embeddings.
+  - Whisper en `core/voice_engine.py` opera en CPU con cuantización `int8` (modelo `base`).
+- **Seguridad y Guardarraíles Preservados:**
+  - Las reglas SEC-05 (shell=False), SEC-06 (sandbox `output/`), SEC-07 (blacklists de apps y teclas), SEC-11/12 (sanitizador de inputs) y ESC-09 (cola serializada) aplican idénticamente en ambos modos.
+
+---
+
 ### 🏷️ alpha 2.0 (version 2.0 alpha) — Arquitectura Modular de Plugins, Conectores MCP, Cola FIFO de Inferencia y Soporte Multiplataforma
 
 **Hitos Principales de la Versión 2.0 Alpha:**
@@ -194,9 +228,9 @@ Estas son las reglas y patrones que se aplican consistentemente en el proyecto:
 - Si la IA usa herramientas → se ejecutan → se hace una SEGUNDA llamada con los resultados
 - Esto permite que la IA sintetice la información antes de responder
 
-### 6. Limpieza de Respuestas Qwen
-- Qwen3 genera tags `<think>...</think>` que se limpian con regex
-- `re.sub(r"<think>[\s\S]*?</think>", "", texto).strip()`
+### 6. Desactivación de Thinking y Limpieza en qwen3.5:9b
+- Todas las peticiones a `qwen3.5:9b` envían `"think": False` nativo a Ollama `/api/chat` para no generar tokens de pensamiento y responder de inmediato.
+- Como capa de defensa en profundidad, cualquier tag residual `<think>...</think>` se filtra en el stream hacia la UI.
 
 ### 7. Convención de Nombres
 - Módulos en español: `sanitizador`, `seguridad`, `dattabase`
@@ -216,11 +250,16 @@ Estas son las reglas y patrones que se aplican consistentemente en el proyecto:
 
 ### 10. Serialización de Inferencia y VRAM Guard (ESC-09)
 - Toda llamada de inferencia al LLM (desde voz o chat) entra a la cola FIFO `cola_mensajes.encolar_peticion`.
-- Ningún hilo secundario debe disparar peticiones HTTP directas a Ollama concurrentemente para evitar congelamiento de la GPU o VRAM OOM.
+- Ningún hilo secundario ni agente dispara peticiones HTTP directas a Ollama concurrentemente; todo pasa por `cola_mensajes.solicitar_inferencia_ollama`.
+- Las transiciones a modo pesado (`gpt-oss:20b`) descargan primero el modelo residente para garantizar que nunca coexistan dos modelos en VRAM (`OLLAMA_MAX_LOADED_MODELS=1`).
 
 ### 11. Abstracción y Seguridad Multiplataforma
 - Toda llamada al sistema operativo debe consultar las banderas de plataforma (`ES_WINDOWS`, `ES_MAC`, `ES_LINUX`).
 - Las blacklists de comandos y teclas (`APPS_BLOQUEADAS`, `TECLAS_BLOQUEADAS`) y las rutas de OCR (`TESSERACT_CMD`) deben adaptarse a cada sistema operativo anfitrión.
+
+### 12. Aislamiento de Embeddings y STT en CPU
+- ChromaDB genera sus embeddings de forma 100% local en CPU mediante ONNX (`all-MiniLM-L6-v2`); tiene prohibido recurrir a Ollama.
+- Whisper (`faster_whisper`) ejecuta exclusivamente en CPU (`device="cpu"`, `compute_type="int8"`). Esto reserva el 100% de la VRAM para el LLM.
 
 ---
 

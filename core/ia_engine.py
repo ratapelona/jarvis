@@ -18,6 +18,7 @@ import pygame
 
 from config import (
     OLLAMA_API_URL,
+    OLLAMA_TAGS_URL,
     API_HEADERS,
     MODELO_PRINCIPAL,
     NOMBRES_APPS,
@@ -28,6 +29,7 @@ from config import (
 from core.sanitizador import sanitizar_input, obtener_directiva_sistema_sanitizacion
 from core import tool_executor
 from core.plugin_manager import plugin_manager
+from core.cola_mensajes import solicitar_inferencia_ollama, encolar_tarea_pesada
 from data import sql_store
 
 # =============================================================================
@@ -105,14 +107,9 @@ def _ejecutar_herramienta(nombre_funcion: str, argumentos: dict, page, usuario: 
         return tool_executor.escanear_entorno_sistema(usuario)
 
     elif nombre_funcion == "delegar_tarea_larga":
-        from core.agente import agente_autonomo_background
         objetivo = argumentos.get("objetivo", "")
-        threading.Thread(
-            target=agente_autonomo_background,
-            args=(page, objetivo, usuario),
-            daemon=True,
-        ).start()
-        return f"Agente iniciado en segundo plano para: '{objetivo}'"
+        encolar_tarea_pesada(objetivo, page, usuario)
+        return f"Tarea delegada al modo pesado (gpt-oss:20b) en cola serializada: '{objetivo}'"
 
     elif nombre_funcion == "navegar_y_leer_pantalla":
         return tool_executor.navegar_y_leer_pantalla(argumentos.get("url", ""), usuario)
@@ -231,51 +228,51 @@ def procesar_peticion_ia(
     if herramientas_permitidas:
         paquete["tools"] = herramientas_permitidas
 
+    # --- Fail-fast: verificar que Ollama está online antes de hacer la petición ---
+    try:
+        _ping = requests.get(OLLAMA_TAGS_URL, timeout=3)
+        if _ping.status_code != 200:
+            raise ConnectionError(f"Ollama respondió con status {_ping.status_code}")
+    except Exception as _e:
+        page.pubsub.send_all({"tipo": "pensando", "estado": False, "id": id_peticion})
+        page.pubsub.send_all({
+            "tipo": "respuesta_ia",
+            "texto": (
+                f"❌ **Ollama offline**: No se pudo conectar a `localhost:11434`.\n"
+                f"Inicia Ollama con `ollama serve` y asegúrate de tener el modelo "
+                f"`{MODELO_PRINCIPAL}` descargado (`ollama pull {MODELO_PRINCIPAL}`)."
+            ),
+        })
+        return
+
     try:
         page.pubsub.send_all({"tipo": "pensando", "estado": True, "id": id_peticion})
         
         def _hacer_peticion_stream(paquete_req):
-            paquete_req["stream"] = True
-            resp = requests.post(OLLAMA_API_URL, headers=API_HEADERS, json=paquete_req, stream=True)
-            texto_completo = ""
-            tool_calls = []
-            if resp.status_code == 200:
-                page.pubsub.send_all({"tipo": "respuesta_ia_stream_start", "id": id_peticion})
-                for linea in resp.iter_lines():
-                    if id_peticion_ref and id_peticion != id_peticion_ref[0]:
-                        break
-                    if linea:
-                        decoded = linea.decode('utf-8')
-                        if decoded.startswith('data: ') and decoded != 'data: [DONE]':
-                            try:
-                                chunk = json.loads(decoded[6:])
-                                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                                if "content" in delta and delta["content"]:
-                                    c = delta["content"]
-                                    texto_completo += c
-                                    page.pubsub.send_all({"tipo": "respuesta_ia_stream_chunk", "id": id_peticion, "chunk": c})
-                                if "tool_calls" in delta:
-                                    for tc in delta["tool_calls"]:
-                                        idx = tc["index"]
-                                        while len(tool_calls) <= idx:
-                                            tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-                                        if "id" in tc and tc["id"]:
-                                            tool_calls[idx]["id"] += tc["id"]
-                                        if "function" in tc:
-                                            if "name" in tc["function"] and tc["function"]["name"]:
-                                                tool_calls[idx]["function"]["name"] += tc["function"]["name"]
-                                            if "arguments" in tc["function"] and tc["function"]["arguments"]:
-                                                tool_calls[idx]["function"]["arguments"] += tc["function"]["arguments"]
-                            except json.JSONDecodeError:
-                                pass
-                page.pubsub.send_all({"tipo": "respuesta_ia_stream_end", "id": id_peticion})
-                msg = {}
-                if texto_completo:
-                    msg["content"] = texto_completo
-                if tool_calls:
-                    msg["tool_calls"] = tool_calls
-                return 200, msg
-            return resp.status_code, None
+            page.pubsub.send_all({"tipo": "respuesta_ia_stream_start", "id": id_peticion})
+
+            def _on_chunk(c):
+                if id_peticion_ref and id_peticion != id_peticion_ref[0]:
+                    return
+                c_limpio = c.replace("</think>", "").replace("<think>", "")
+                if c_limpio:
+                    page.pubsub.send_all({"tipo": "respuesta_ia_stream_chunk", "id": id_peticion, "chunk": c_limpio})
+
+            def _on_think_chunk(c):
+                if id_peticion_ref and id_peticion != id_peticion_ref[0]:
+                    return
+                c_limpio = c.replace("<think>", "").replace("</think>", "")
+                if c_limpio:
+                    page.pubsub.send_all({"tipo": "respuesta_ia_stream_think_chunk", "id": id_peticion, "chunk": c_limpio})
+
+            status, msg = solicitar_inferencia_ollama(
+                paquete=paquete_req,
+                on_chunk=_on_chunk,
+                on_think_chunk=_on_think_chunk,
+                stream=True,
+            )
+            page.pubsub.send_all({"tipo": "respuesta_ia_stream_end", "id": id_peticion})
+            return status, msg
 
         status_code, mensaje_ia = _hacer_peticion_stream(paquete)
 
@@ -353,8 +350,8 @@ def procesar_peticion_ia(
                 # La UI ya se actualizó mediante el stream
 
 
-            # --- 9. Síntesis de voz (SEC-05: shell=False) ---
-            if texto_para_voz.strip() and usar_voz:
+            # --- 9. Síntesis de voz — EXCLUSIVA de la sección de voz, NUNCA en uso de OS/herramientas ---
+            if texto_para_voz.strip() and usar_voz and iteraciones_herramientas == 0:
                 page.pubsub.send_all({"tipo": "onda_hablando", "estado": True})
                 nombre_audio = tool_executor.sintetizar_voz(texto_para_voz)
                 if nombre_audio:

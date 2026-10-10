@@ -16,7 +16,12 @@ from security.auth import validar_login, crear_usuario, inicializar_seguridad
 from core.ia_engine import procesar_peticion_ia
 from core.voice_engine import inicializar_sistemas_audio, motor_jarvis, iniciar_dictado, detener_dictado
 from data import sql_store
-from core.cola_mensajes import encolar_peticion, iniciar_worker
+from core.cola_mensajes import (
+    encolar_peticion,
+    iniciar_worker,
+    precalentar_modelo_residente,
+    encolar_tarea_pesada,
+)
 from core.plugin_manager import plugin_manager
 
 
@@ -25,6 +30,9 @@ def interfaz_principal(page: ft.Page):
 
     # --- Inicializar seguridad (crea tablas si no existen) ---
     inicializar_seguridad()
+
+    # --- Precalentar modelo residente (qwen3.5:9b) en background ---
+    threading.Thread(target=precalentar_modelo_residente, daemon=True).start()
 
     # --- Estado de sesión (mutable refs para compartir entre threads) ---
     id_peticion_ref = [0]             # ESC-07: contador de peticiones
@@ -256,7 +264,7 @@ def interfaz_principal(page: ft.Page):
             page.update()
 
         elif mensaje_dict.get("tipo") == "pensando":
-            if mensaje_dict["id"] == id_peticion_ref[0]:
+            if mensaje_dict.get("agente") or mensaje_dict["id"] == id_peticion_ref[0]:
                 indicador_pensando.visible = mensaje_dict["estado"]
                 page.update()
 
@@ -280,28 +288,65 @@ def interfaz_principal(page: ft.Page):
         elif mensaje_dict.get("tipo") == "respuesta_ia_stream_start":
             id_pet = mensaje_dict["id"]
             nombre_bot = "Jarvis" if rol_ref[0] == "admin" else "Asistente"
+            
+            # 1. Crear el contenedor colapsable (Acordeón) para el pensamiento
+            texto_think = ft.Text("", color=ft.Colors.GREY_500, italic=True, size=12, selectable=True)
+            acordeon_think = ft.ExpansionTile(
+                title=ft.Text("Pensando...", color=ft.Colors.GREY_500, italic=True, size=13),
+                leading=ft.Icon(ft.Icons.LIGHTBULB_OUTLINE, color=ft.Colors.YELLOW_600),
+                controls=[ft.Container(content=texto_think, padding=10, bgcolor=ft.Colors.BLACK12, border_radius=5)],
+                visible=False, # Se mantiene oculto hasta que reciba el tag <think>
+            )
+            
+            # 2. Crear el texto para la respuesta principal
             texto_ui = ft.Text(f"{nombre_bot}: ", color=get_text_color(), selectable=True, weight=ft.FontWeight.W_600)
+            
+            # 3. Empaquetar todo en la burbuja
+            columna_burbuja = ft.Column(controls=[acordeon_think, texto_ui], spacing=5)
             burbuja_ia = ft.Container(
                 padding=15, border_radius=0,
                 border=get_neo_border(), shadow=get_neo_shadow(),
                 bgcolor=ft.Colors.CYAN_300 if not modo_oscuro_ref[0] else ft.Colors.BLUE_900,
-                content=texto_ui,
+                content=columna_burbuja,
             )
             lista_chat.controls.append(burbuja_ia)
-            streaming_bubbles[id_pet] = texto_ui
+            
+            # Guardamos el diccionario con las referencias a ambos textos y al acordeón
+            streaming_bubbles[id_pet] = {"normal": texto_ui, "think": texto_think, "acordeon": acordeon_think}
             page.update()
+
+        # NUEVO EVENTO: Dibuja el pensamiento dentro del acordeón gris
+        elif mensaje_dict.get("tipo") == "respuesta_ia_stream_think_chunk":
+            id_pet = mensaje_dict["id"]
+            chunk = mensaje_dict["chunk"]
+            if id_pet in streaming_bubbles:
+                refs = streaming_bubbles[id_pet]
+                refs["think"].value += chunk
+                
+                # Hacer visible y expandir el acordeón en cuanto empieza a pensar
+                if not refs["acordeon"].visible:
+                    refs["acordeon"].visible = True
+                    # Flet requiere un update de la página para que tome la visibilidad inicial
+                    page.update()
+                    refs["acordeon"].expanded = True
+                    
+                page.update()
 
         elif mensaje_dict.get("tipo") == "respuesta_ia_stream_chunk":
             id_pet = mensaje_dict["id"]
             chunk = mensaje_dict["chunk"]
             if id_pet in streaming_bubbles:
-                streaming_bubbles[id_pet].value += chunk
+                streaming_bubbles[id_pet]["normal"].value += chunk
                 page.update()
 
         elif mensaje_dict.get("tipo") == "respuesta_ia_stream_end":
             id_pet = mensaje_dict["id"]
             if id_pet in streaming_bubbles:
+                # Cierra el acordeón de pensamiento automáticamente cuando empieza a hablar
+                if streaming_bubbles[id_pet]["acordeon"].visible:
+                    streaming_bubbles[id_pet]["acordeon"].expanded = False
                 del streaming_bubbles[id_pet]
+            page.update()
 
         elif mensaje_dict.get("tipo") == "dictado_chunk":
             # Inserta el texto transcrito en el campo de escritura
@@ -377,15 +422,9 @@ def interfaz_principal(page: ft.Page):
         campo_texto.update()
 
         if modo_activo_ref[0] == "trabajo":
-            # Modo Trabajo (OS): delegar directamente al agente sin voz
-            from core.agente import agente_autonomo_background
+            # Modo Trabajo (OS): delegar a través de la cola serializada (Modo Pesado)
             page.pubsub.send_all({"tipo": "mensaje_usuario_ui", "texto": texto_escrito})
-            threading.Thread(
-                target=agente_autonomo_background,
-                args=(page, texto_escrito, usuario_ref[0]),
-                kwargs={"delay_inicio": 2},
-                daemon=True,
-            ).start()
+            encolar_tarea_pesada(texto_escrito, page, usuario_ref[0], delay_inicio=2)
         else:
             id_peticion_ref[0] += 1
             page.pubsub.send_all({"tipo": "mensaje_usuario_ui", "texto": texto_escrito})
@@ -1021,7 +1060,7 @@ def interfaz_principal(page: ft.Page):
                                 ]
                             )
                         )
-                        columna_cards.controls.append(card)
+                        columna_cards.append(card)
                 page.update()
 
             def filtrar_por_texto(ev):

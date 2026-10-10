@@ -21,17 +21,31 @@ _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 VERSION = "2.0-alpha"
 
 # =============================================================================
-# API
+# API & MODELOS (OLLAMA RESIDENTE + MODO PESADO)
 # =============================================================================
-OLLAMA_API_URL = "http://localhost:11434/v1/chat/completions"
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
+OLLAMA_API_URL = OLLAMA_CHAT_URL
+OLLAMA_TAGS_URL = f"{OLLAMA_BASE_URL}/api/tags"
+OLLAMA_PS_URL = f"{OLLAMA_BASE_URL}/api/ps"
 OLLAMA_API_KEY = "ollama"  # Ollama no requiere una API key real por defecto
 API_HEADERS = {
     "Authorization": f"Bearer {OLLAMA_API_KEY}",
     "Content-Type": "application/json"
 }
-MODELO_PRINCIPAL = "qwen3:8b"
-MODELO_AGENTE = "qwen3:8b"
+
+# Modelo residente (siempre cargado en memoria) y modo pesado (solo tareas largas)
+MODELO_RAPIDO = "qwen3.5:9b"
+MODELO_PESADO = "gpt-oss:20b"
+MODELO_PRINCIPAL = MODELO_RAPIDO
+MODELO_AGENTE = MODELO_PESADO
 TEMPERATURA = 0.1
+NUM_CTX = 8192
+KEEP_ALIVE_RESIDENTE = -1
+OLLAMA_OPTIONS = {
+    "num_ctx": NUM_CTX,
+    "temperature": TEMPERATURA
+}
 
 # =============================================================================
 # AUDIO
@@ -43,6 +57,9 @@ SILENCE_TIMEOUT_SECS = 2.0
 MAX_RECORDING_SECS = 15.0
 NO_SPEECH_TIMEOUT_SECS = 1.0
 TTS_VOICE = "es-MX-JorgeNeural"
+WHISPER_MODEL = "base"
+WHISPER_DEVICE = "cpu"
+WHISPER_COMPUTE_TYPE = "int8"
 
 # =============================================================================
 # BASE DE DATOS

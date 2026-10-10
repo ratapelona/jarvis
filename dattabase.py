@@ -1,9 +1,13 @@
 import chromadb
-import requests
+from chromadb.utils import embedding_functions
 
-# --- 1. CONEXIÓN A LA BÓVEDA ---
+# --- 1. CONEXIÓN A LA BÓVEDA (Embeddings locales en CPU, nunca Ollama) ---
+_embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 boveda = chromadb.PersistentClient(path="./cerebro_jarvis")
-memoria_largo_plazo = boveda.get_or_create_collection(name="database_vectorial_v2")
+memoria_largo_plazo = boveda.get_or_create_collection(
+    name="database_vectorial_v2",
+    embedding_function=_embedding_fn,
+)
 
 # --- 2. GUARDAR CON ETIQUETA MULTI-INQUILINO ---
 def guardar_recuerdo(id_recuerdo, texto, usuario_activo):

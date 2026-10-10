@@ -13,6 +13,26 @@
       "activo": true,
       "config": {}
     },
+    "remotion_mcp": {
+      "id": "remotion_mcp",
+      "nombre": "Remotion MCP",
+      "categoria": "Edición Audiovisual",
+      "tipo": "mcp_stdio",
+      "plataformas": "Node.js / Remotion",
+      "uso": "Renderiza videos MP4 con Remotion mediante un servidor MCP local por stdio.",
+      "ideal_para": "Generar videos programáticos con texto y brillo configurables.",
+      "recomendado": true,
+      "instalado": true,
+      "activo": true,
+      "config": {
+        "command": "node",
+        "args": [
+          "remotion-mcp-server.node/dist/index.js"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 120
+      }
+    },
     "davinci_resolve_free": {
       "id": "davinci_resolve_free",
       "nombre": "DaVinci Resolve (Free Edition)",
@@ -23,7 +43,7 @@
       "ideal_para": "Edición y montaje automatizado de video, render de clips y sincronización.",
       "recomendado": true,
       "instalado": true,
-      "activo": true,
+      "activo": false,
       "config": {}
     },
     "blender_3d": {

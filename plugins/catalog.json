@@ -22,10 +22,27 @@
     "ideal_para": "Edición y montaje automatizado de video, render de clips y sincronización.",
     "recomendado": true,
     "instalado": true,
-    "activo": true,
+    "activo": false,
     "requiere_config": true,
     "config_fields": [
       {"key": "exe_path", "label": "Ruta de Resolve.exe o DaVinci Resolve.app", "default": ""}
+    ]
+  },
+  {
+    "id": "remotion_mcp",
+    "nombre": "Remotion MCP",
+    "categoria": "Edición Audiovisual",
+    "tipo": "mcp_stdio",
+    "plataformas": "Node.js / Remotion",
+    "uso": "Renderiza videos MP4 con Remotion mediante un servidor MCP local por stdio.",
+    "ideal_para": "Generar videos programáticos con texto y brillo configurables.",
+    "recomendado": true,
+    "instalado": true,
+    "activo": true,
+    "requiere_config": true,
+    "config_fields": [
+      {"key": "command", "label": "Comando del servidor MCP", "default": "node"},
+      {"key": "args", "label": "Argumentos del servidor MCP", "default": "remotion-mcp-server.node/dist/index.js"}
     ]
   },
   {

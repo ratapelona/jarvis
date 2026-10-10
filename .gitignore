@@ -10,3 +10,5 @@ output/
 build/
 dist/
 session_store.json
+node_modules/
+renders/

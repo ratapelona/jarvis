@@ -16,37 +16,39 @@
 
 ### `config.py`
 - **Qué hace:** Centraliza TODA la configuración del proyecto
-- **Importa:** `os`, `dotenv`
+- **Importa:** `os`, `sys`, `dotenv`
 - **Usado por:** Todos los módulos de `core/`, `security/`, `data/`, `ui/`
 - **Contiene:**
-  - URLs y API keys
-  - Parámetros de audio
-  - Paths de DB
+  - URLs de Ollama (`/api/chat`, `/api/tags`, `/api/ps`)
+  - Modelos: `MODELO_RAPIDO = "qwen3.5:9b"`, `MODELO_PESADO = "gpt-oss:20b"`
+  - Configuración fija de inferencia: `NUM_CTX = 8192`, `KEEP_ALIVE_RESIDENTE = -1`, `OLLAMA_OPTIONS`
+  - Parámetros de audio y Whisper en CPU (`device="cpu"`, `compute_type="int8"`)
+  - Paths de DB y ChromaDB
   - Parámetros de seguridad (bcrypt cost, rate limiting)
-  - Sandbox + whitelists
+  - Sandbox + whitelists y blacklists por plataforma
   - Dimensiones de UI
 
 ---
 
 ### `enrutador_llm.py`
-- **Qué hace:** Enruta inteligentemente los prompts al modelo especialista adecuado (programación, redacción, embeddings).
-- **Importa:** `requests`, `json`, `config`
-- **Usado por:** `cerebro.py`, `cerebro_jarvis_prototipo.py`, y componentes de IA.
-- **Función clave:** `decidir_modelo_para_tarea()`
+- **Qué hace:** Enrutador determinista sin llamadas a LLM ni modelos especialistas.
+- **Importa:** `config` (`MODELO_RAPIDO`, `MODELO_PESADO`)
+- **Usado por:** Módulos de orquestación de inferencia.
+- **Función clave:** `decidir_modelo_para_tarea()` (Rápido por defecto, Pesado solo para delegar tarea larga).
 
 ---
 
 ### `core/ia_engine.py`
-- **Qué hace:** Motor principal de IA — construye prompts, streaming de tokens, llama a la API Ollama, inyecta tools de plugins y ejecuta tools nativas
-- **Importa:** `config`, `core.sanitizador`, `core.tool_executor`, `core.plugin_manager`, `data.sql_store`, `data.vector_store`
+- **Qué hace:** Motor interactivo de IA — construye prompts, canaliza el streaming hacia la UI, delega inferencias en `cola_mensajes.solicitar_inferencia_ollama()` (`qwen3.5:9b`), inyecta tools de plugins y despacha tareas largas hacia la cola serializada.
+- **Importa:** `config`, `core.sanitizador`, `core.tool_executor`, `core.plugin_manager`, `core.cola_mensajes`, `data.sql_store`
 - **Usado por:** `ui/app.py` (via `cola_mensajes.encolar_peticion`)
 - **Función clave:** `procesar_peticion_ia()`
 
-### `core/cola_mensajes.py` *(Novedad v2.0 alpha)*
-- **Qué hace:** Cola FIFO serializada para proteger la VRAM de la GPU (Regla ESC-09). Despacha inferencias una a una con feedback visual.
-- **Importa:** `config`, `queue`, `threading`
-- **Usado por:** `ui/app.py`, `core/voice_engine.py`
-- **Funciones clave:** `encolar_peticion()`, `iniciar_worker()`, `obtener_tamano_cola()`
+### `core/cola_mensajes.py` *(Actualizado v2.1)*
+- **Qué hace:** Orquestador central de inferencia y VRAM Guard (Regla ESC-09). Gestiona la cola FIFO, el precalentamiento del modelo residente, las transiciones atómicas al Modo Pesado (`gpt-oss:20b`), avisos TTS de entrada/salida y ofrece el cliente unificado `solicitar_inferencia_ollama()`.
+- **Importa:** `config`, `queue`, `threading`, `requests`, `pygame`, `core.tool_executor`
+- **Usado por:** `ui/app.py`, `core/voice_engine.py`, `core/ia_engine.py`, `core/agente.py`
+- **Funciones clave:** `encolar_peticion()`, `encolar_tarea_pesada()`, `solicitar_inferencia_ollama()`, `precalentar_modelo_residente()`, `esta_en_modo_pesado()`, `cancelar_tarea_pesada()`
 
 ### `core/plugin_manager.py` *(Novedad v2.0 alpha)*
 - **Qué hace:** Gestor central de plugins y conectores MCP. Carga dinámica, sincronización de catálogo, inyección de tools y ejecución.
@@ -54,17 +56,17 @@
 - **Usado por:** `core/ia_engine.py`, `core/agente.py`, `ui/app.py`
 - **Funciones clave:** `toggle_plugin()`, `obtener_herramientas_activas()`, `ejecutar_herramienta_plugin()`
 
-### `core/agente.py`
-- **Qué hace:** Agente autónomo que controla la pantalla en background con ciclo ReAct
-- **Importa:** `config`, `core.tool_executor`, `core.plugin_manager`, `data.sql_store`
-- **Usado por:** `core/ia_engine.py` (via `delegar_tarea_larga`)
+### `core/agente.py` *(Actualizado v2.1)*
+- **Qué hace:** Agente autónomo para Modo Pesado (`gpt-oss:20b`, reasoning "low"). Ejecuta ciclos ReAct con guardarraíles, sin llamar a Ollama directamente (canaliza por `cola_mensajes.solicitar_inferencia_ollama()`) y con soporte para cancelación externa.
+- **Importa:** `config`, `core.tool_executor`, `core.plugin_manager`, `core.cola_mensajes`, `data.sql_store`
+- **Usado por:** `core/cola_mensajes.py` (via `_operacion_serializada_modo_pesado`)
 - **Función clave:** `agente_autonomo_background()`
 
 ### `core/tool_executor.py`
-- **Qué hace:** Ejecuta herramientas de forma segura (sandbox, whitelists, logging, Playwright CDP, Windows UIA)
+- **Qué hace:** Ejecuta herramientas de forma segura (sandbox, whitelists, logging, Playwright CDP, Windows UIA, TTS con shell=False)
 - **Importa:** `config`, `data.sql_store`, `pyautogui`, `pywinauto`, `pytesseract`, `PIL`, `fpdf2`, `ddgs`, `playwright`
-- **Usado por:** `core/ia_engine.py`, `core/agente.py`
-- **Funciones clave:** `abrir_app()`, `crear_archivo_seguro()`, `escanear_pantalla_ocr()`, `mover_y_click()`, etc.
+- **Usado por:** `core/ia_engine.py`, `core/agente.py`, `core/cola_mensajes.py`
+- **Funciones clave:** `abrir_app()`, `crear_archivo_seguro()`, `sintetizar_voz()`, `escanear_pantalla_ocr()`, `mover_y_click()`, etc.
 
 ### `core/sanitizador.py`
 - **Qué hace:** Sanitiza inputs del usuario en 3 capas (longitud + regex + delimitadores anti prompt injection)
@@ -72,8 +74,8 @@
 - **Usado por:** `core/ia_engine.py`
 - **Funciones clave:** `sanitizar_input()`, `obtener_directiva_sistema_sanitizacion()`
 
-### `core/voice_engine.py`
-- **Qué hace:** Wake word, grabación de audio, transcripción con Whisper, TTS con Edge-TTS
+### `core/voice_engine.py` *(Actualizado v2.1)*
+- **Qué hace:** Wake word ("Hey Jarvis"), grabación con umbrales de silencio, transcripción con Whisper en CPU int8, y manejo inteligente de interrupciones de voz durante Modo Pesado (cancelar o encolar).
 - **Importa:** `config`, `core.cola_mensajes`, `openwakeword`, `faster_whisper`, `sounddevice`, `numpy`, `scipy`
 - **Usado por:** `ui/app.py`
 - **Funciones clave:** `inicializar_sistemas_audio()`, `motor_jarvis()`
@@ -117,8 +119,8 @@
 - **Razón de existir:** Capa de abstracción para migrar a PostgreSQL sin tocar importadores
 
 ### `data/vector_store.py`
-- **Qué hace:** Memoria semántica con ChromaDB + poda automática
-- **Importa:** `config`, `chromadb`
+- **Qué hace:** Memoria semántica con ChromaDB + poda automática. Usa embeddings locales ONNX en CPU (`all-MiniLM-L6-v2`), nunca Ollama.
+- **Importa:** `config`, `chromadb`, `chromadb.utils.embedding_functions`
 - **Usado por:** `core/ia_engine.py`
 - **Funciones clave:** `guardar_recuerdo()`, `recordar()`
 

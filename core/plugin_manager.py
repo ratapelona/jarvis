@@ -17,6 +17,7 @@ from plugins.pptx_plugin import PptxPlugin
 from plugins.blender_plugin import BlenderPlugin
 from plugins.davinci_plugin import DavinciPlugin
 from plugins.autocad_plugin import AutocadPlugin
+from plugins.mcp_stdio_plugin import McpStdioPlugin
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plugins_config.json")
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plugins", "catalog.json")
@@ -100,6 +101,17 @@ class PluginManager:
         self.plugins_locales["davinci_resolve_free"] = DavinciPlugin(custom_path=conf_davinci.get("exe_path", ""))
         self.plugins_locales["blender_3d"] = BlenderPlugin(custom_path=conf_blender.get("exe_path", ""))
         self.plugins_locales["autocad_suite"] = AutocadPlugin()
+
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for pid, meta in self.config_estado.get("plugins", {}).items():
+            if meta.get("tipo") == "mcp_stdio":
+                self.plugins_locales[pid] = McpStdioPlugin(
+                    plugin_id=pid,
+                    name=meta.get("nombre", pid),
+                    description=meta.get("uso", "Servidor MCP por stdio."),
+                    config=meta.get("config", {}),
+                    project_root=project_root,
+                )
 
     # =========================================================================
     # Métodos Públicos para la UI y el Motor IA

@@ -1,7 +1,7 @@
 # 🧠 Reaxy$ (Jarvis Project) — Contexto Completo del Proyecto
 
-> **Última actualización:** 2026-10-03  
-> **Versión actual:** 2.0 alpha (alpha 2.0)  
+> **Última actualización:** 2026-10-10  
+> **Versión actual:** 2.1 alpha (alpha 2.1)  
 > **Nombre código:** `jarvis_proyect`  
 > **Nombre público:** Reaxy$ - Agentic OS
 
@@ -11,17 +11,17 @@
 
 **Reaxy$** es un asistente de escritorio con inteligencia artificial que funciona como un **sistema operativo agéntico personal**. Combina:
 
-- **Interacción por voz** (wake word "Hey Jarvis" + transcripción con Whisper + TTS neural)
+- **Interacción por voz** (wake word "Hey Jarvis" + transcripción con Whisper en CPU + TTS neural)
 - **Interacción por texto** (chat tipo ChatGPT con streaming token a token)
 - **Ejecución autónoma de tareas** (agente que controla mouse, teclado, Windows UIA y pantalla con OCR)
 - **Sistema Extensible de Plugins & MCP** (Marketplace visual `/plugins`, PowerPoint, Blender 3D, DaVinci Resolve, AutoCAD)
-- **Cola Serializada de Inferencia (ESC-09)** (Protección de VRAM/GPU para ejecución local estable)
-- **Memoria a largo plazo** (base de datos vectorial con ChromaDB y poda automática)
+- **Cola Serializada de Inferencia & VRAM Guard (ESC-09)** (Gestión atómica de modelo residente `qwen3.5:9b` y modo pesado `gpt-oss:20b`)
+- **Memoria a largo plazo** (base de datos vectorial con ChromaDB y embeddings ONNX locales en CPU)
 - **Historial de conversaciones** (base de datos relacional SQLite con WAL mode)
 - **Sistema de autenticación y seguridad Zero-Trust** con roles (Admin vs Invitado, bcrypt, sandboxing, anti prompt-injection)
 - **Interfaz gráfica moderna** con estética Neo-brutalista reactiva (Flet)
 
-En esencia: **es un asistente de IA local-first que no solo habla, sino que ACTÚA** — puede abrir apps, navegar la web con Playwright CDP, crear presentaciones PPTX, renderizar escenas en Blender, automatizar DaVinci Resolve, generar planos en AutoCAD, mover el mouse, escribir y razonar con modelos locales (`qwen3:8b`).
+En esencia: **es un asistente de IA local-first que no solo habla, sino que ACTÚA** — puede abrir apps, navegar la web con Playwright CDP, crear presentaciones PPTX, renderizar escenas en Blender, automatizar DaVinci Resolve, generar planos en AutoCAD, mover el mouse, escribir y razonar con modelos locales (`qwen3.5:9b` y `gpt-oss:20b`).
 
 ---
 
@@ -100,11 +100,11 @@ jarvis_proyect/
                             └────────┬────────┘
                                      │
                             ┌────────▼────────┐
-                            │ cola_mensajes.py│  ← Cola FIFO (ESC-09: VRAM Guard)
+                            │ cola_mensajes.py│  ← Cola FIFO + VRAM Guard (Orquestador de Modelos)
                             └────────┬────────┘
                                      │
                             ┌────────▼────────┐
-                            │   ia_engine.py  │  ← Orquestador Ollama (qwen3:8b)
+                            │   ia_engine.py  │  ← Orquestador Ollama (qwen3.5:9b residente)
                             │                 │  ← Inyección de tools de plugins
                             └────┬───────┬────┘
                                  │       │
@@ -142,14 +142,16 @@ jarvis_proyect/
 | Detección de silencio | `sounddevice` + `numpy` | 2s de silencio = fin de grabación, max 15s |
 | Text-to-Speech | `edge-tts` | Voz "es-MX-JorgeNeural" (Microsoft) |
 
-### 🤖 Motor de IA
+### 🤖 Motor de IA (Arquitectura Dual Ollama)
 | Feature | Detalle |
 |---------|---------|
-| LLM Local | Ollama con `qwen3:8b` (configurable) |
-| LLM Cloud (fallback) | Groq API con `llama-3.3-70b-versatile` |
-| Function Calling | Ciclo completo: 1ª llamada → ejecutar tool → 2ª llamada (síntesis) |
-| System Prompt | Dinámico según rol (Admin = MODO EJECUCIÓN estricto para tools y MODO MENTOR, Invitado = chat casual) |
-| Método de Enseñanza | Explica 2 veces: intuitiva (analogías) + técnica (bajo nivel) |
+| **Modelo Residente (Rápido)** | `qwen3.5:9b` siempre en VRAM (`keep_alive: -1`, `think: False`, `num_ctx: 8192`, precalentado al inicio) |
+| **Modo Pesado (Agente)** | `gpt-oss:20b` (`think: "low"`), cargado solo durante `delegar_tarea_larga` previa descarga del 9B |
+| **Enrutador Determinista** | `enrutador_llm.py` sin llamadas a LLM: rápido por defecto, pesado solo en delegar tarea |
+| **LLM Cloud (fallback)** | Groq API con `llama-3.3-70b-versatile` (opcional en código) |
+| **Function Calling** | Nativo vía `/api/chat` Ollama con herramientas de plugins y nativas |
+| **System Prompt** | Dinámico según rol (Admin = MODO EJECUCIÓN estricto para tools y MODO MENTOR, Invitado = chat casual) |
+| **Método de Enseñanza** | Explica 2 veces: intuitiva (analogías) + técnica (bajo nivel) |
 
 ### 🛠️ Herramientas (Function Calling)
 | Herramienta | Descripción |
@@ -176,10 +178,12 @@ jarvis_proyect/
 | **AutoCAD** | `plugins/autocad_plugin.py` | `ejecutar_script_autocad`, `dibujar_geometria_autocad` (scripts `.scr` y automatización ActiveX COM) |
 | **Conectores MCP / Custom**| `core/plugin_manager.py` | Integración dinámica vía `/plugins` con catálogo de 24 herramientas y soporte para servidores MCP |
 
-### 🛡️ Capa de Resiliencia: Cola FIFO de Inferencia (ESC-09)
-- **Serialización Total:** Toda petición al LLM (chat o voz) ingresa a `cola_mensajes.encolar_peticion`.
-- **Protección de VRAM:** El worker procesa una inferencia a la vez, eliminando bloqueos de GPU u Out Of Memory (OOM) en Ollama local (`qwen3:8b`).
-- **Feedback UI:** Envía el conteo de tareas pendientes en tiempo real a la interfaz mediante PubSub (`cola_estado`).
+### 🛡️ Capa de Resiliencia: Cola FIFO y Orquestación VRAM (ESC-09)
+- **Serialización Total:** Toda petición al LLM (chat, voz o tarea de agente) pasa por `cola_mensajes.solicitar_inferencia_ollama()`.
+- **Transición Atómica:** Al delegar tarea larga, la cola avisa por TTS, descarga el 9B, monta el 20B (`gpt-oss:20b`), corre la tarea y al terminar descarga el 20B y restablece el 9B, avisando nuevamente por TTS.
+- **Manejo de Interrupciones de Voz:** Si llega voz durante el modo pesado: cancela el agente si el usuario lo ordena (*"cancela"*, *"detén"*), o encola la consulta para procesarla al recuperar el 9B.
+- **Protección de VRAM:** `OLLAMA_MAX_LOADED_MODELS=1` garantiza que nunca coexistan dos modelos en GPU.
+- **Feedback UI:** Publica estado de la cola y modo activo en tiempo real (`cola_estado`).
 
 ### 🤖 Agente Autónomo
 - **Loop de hasta 15 pasos** con herramientas reducidas (OCR + mouse + teclado + plugins activos)
